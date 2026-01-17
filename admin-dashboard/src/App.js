@@ -678,6 +678,7 @@ const Dashboard = () => {
             setChartData(
                 data.trends?.map((item) => ({
                     x: item.x, // backend: day name / Week N / month abbr / year
+                    tooltip_label: item.tooltip_label,
                     applications: item.applications,
                     registrations: item.logins,
                 })) || []
@@ -855,7 +856,7 @@ const Dashboard = () => {
                     }}
                 >
                     <Typography variant="h6" sx={{ color: 'text.primary' }}>
-                        Activity Trends
+                        Application and Registration Activity Trends
                     </Typography>
 
                     <FormControl size="small" sx={{ minWidth: 120, maxWidth: 240 }}>
@@ -867,7 +868,8 @@ const Dashboard = () => {
                             onChange={(e) => setRange(e.target.value)}
                         >
                             <MenuItem value="weekly">This Week</MenuItem>
-                            <MenuItem value="monthly">This Month (4 Weeks)</MenuItem>
+                            <MenuItem value="monthly">This Month</MenuItem>
+                            <MenuItem value="six_months">Last 6 Months</MenuItem>
                             <MenuItem value="yearly">This Year</MenuItem>
                             <MenuItem value="ten_years">Last 10 Years</MenuItem>
                         </Select>
@@ -882,15 +884,22 @@ const Dashboard = () => {
                         <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
                         <XAxis 
                             dataKey="x" 
-                            label={{ value: 'Date', position: 'bottom', offset: 10, fill: theme.palette.text.secondary }}
-                            tick={{ fill: theme.palette.text.secondary }}
+                            tickMargin={15} 
+                            label={{ value: 'Time Period', position: 'bottom', offset: 30, fill: theme.palette.text.secondary }}
+                            tick={{ fill: theme.palette.text.secondary, fontSize: 15, angle: 0, textAnchor: 'middle' }}
                         />
                         <YAxis 
                             allowDecimals={false}
-                            label={{ value: 'Activity', angle: -90, position: 'left', fill: theme.palette.text.secondary }}
-                            tick={{ fill: theme.palette.text.secondary }}
+                            label={{ value: 'Activity Counts', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' }, offset: 10, fill: theme.palette.text.secondary }}
+                            tick={{ fill: theme.palette.text.secondary, fontSize: 15 }}
                         />
                         <RechartsTooltip 
+                            labelFormatter={(value, payload) => {
+                                if (payload && payload.length > 0 && payload[0].payload.tooltip_label) {
+                                    return payload[0].payload.tooltip_label;
+                                }
+                                return value;
+                            }}
                             contentStyle={{
                                 backgroundColor: theme.palette.background.paper,
                                 color: theme.palette.text.primary,
@@ -901,7 +910,7 @@ const Dashboard = () => {
                             cursor={{ stroke: theme.palette.action.hover, strokeWidth: 2 }}
                         />
                         <Legend 
-                            wrapperStyle={{ paddingTop: '35px' }}
+                            wrapperStyle={{ paddingTop: '60px' }}
                             iconSize={16}
                             iconType="circle"
                         />

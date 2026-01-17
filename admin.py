@@ -938,7 +938,7 @@ def get_dashboard_data():
     total_jobs = Job.query.count()
     total_applications = JobApplication.query.count()
 
-    range_type = request.args.get('range', 'weekly')  # weekly | monthly | yearly | ten_years
+    range_type = str(request.args.get('range', 'weekly')).strip().lower()  # weekly | monthly | yearly | ten_years
 
     trends = []
 
@@ -965,10 +965,15 @@ def get_dashboard_data():
         year = now_kolkata.year
         month = now_kolkata.month
         days_in_month = calendar.monthrange(year, month)[1]
+        month_name = calendar.month_abbr[month]
 
-        for week_idx in range(4):
+        for week_idx in range(5):
             start_day = 1 + week_idx * 7
             if start_day > days_in_month:
+                break
+
+            # Stop if the start day of the week is in the future
+            if start_day > now_kolkata.day:
                 break
             end_day = min(start_day + 6, days_in_month)
 
@@ -977,8 +982,38 @@ def get_dashboard_data():
 
             applications_count, logins_count = get_counts_for_range(start_dt, end_dt)
 
+            # Format: Week 1 (1–7 Mar)
+            x_label = f"Week {week_idx + 1} ({start_day}–{end_day} {month_name})"
+            
+            # Format: Week 1 – 1 Mar to 7 Mar 2024
+            tooltip_label = f"Week {week_idx + 1} – {start_day} {month_name} to {end_day} {month_name} {year}"
+
             trends.append({
-                "x": f"Week {week_idx + 1}",   # Week 1..4
+                "x": x_label,
+                "tooltip_label": tooltip_label,
+                "applications": applications_count,
+                "logins": logins_count,
+            })
+    
+    elif range_type == 'six_months':
+        # Last 6 months including current month
+        for i in range(5, -1, -1):
+            # Calculate year and month i months ago
+            m = now_kolkata.month - i
+            y = now_kolkata.year
+            while m <= 0:
+                m += 12
+                y -= 1
+            
+            start_of_month = datetime(y, m, 1, 0, 0, 0, 0)
+            days_in_m = calendar.monthrange(y, m)[1]
+            end_of_month = datetime(y, m, days_in_m, 23, 59, 59, 999999)
+            
+            applications_count, logins_count = get_counts_for_range(start_of_month, end_of_month)
+
+            trends.append({
+                "x": f"{calendar.month_abbr[m]} {y}",
+                "tooltip_label": f"{calendar.month_name[m]} {y}",
                 "applications": applications_count,
                 "logins": logins_count,
             })
@@ -987,7 +1022,7 @@ def get_dashboard_data():
         # Current year, aggregated per month
         year = now_kolkata.year
 
-        for month in range(1, 13):
+        for month in range(1, now_kolkata.month + 1):
             start_of_month = datetime(year, month, 1, 0, 0, 0, 0)
             if month == 12:
                 end_of_month = datetime(year + 1, 1, 1, 0, 0, 0, 0) - timedelta(microseconds=1)
@@ -996,8 +1031,12 @@ def get_dashboard_data():
 
             applications_count, logins_count = get_counts_for_range(start_of_month, end_of_month)
 
+            label = calendar.month_abbr[month]
+            tooltip = f"{calendar.month_name[month]} {year}"
+
             trends.append({
-                "x": calendar.month_abbr[month],  # Jan, Feb, ...
+                "x": label,
+                "tooltip_label": tooltip,
                 "applications": applications_count,
                 "logins": logins_count,
             })
@@ -1012,9 +1051,11 @@ def get_dashboard_data():
             end_of_year = datetime(year + 1, 1, 1, 0, 0, 0, 0) - timedelta(microseconds=1)
 
             applications_count, logins_count = get_counts_for_range(start_of_year, end_of_year)
+            label = str(year)
 
             trends.append({
-                "x": str(year),  # e.g., "2016"
+                "x": label,
+                "tooltip_label": label,
                 "applications": applications_count,
                 "logins": logins_count,
             })
@@ -1027,6 +1068,10 @@ def get_dashboard_data():
         for i in range(7):
             day_kolkata = start_of_week_kolkata + timedelta(days=i)
 
+            # Stop if the day is in the future relative to today
+            if day_kolkata.date() > now_kolkata.date():
+                break
+
             start_of_day = datetime(
                 day_kolkata.year, day_kolkata.month, day_kolkata.day,
                 0, 0, 0, 0,
@@ -1037,12 +1082,34 @@ def get_dashboard_data():
             )
 
             applications_count, logins_count = get_counts_for_range(start_of_day, end_of_day)
+            
+            # FORMAT: "Mon (12 Mar)"
+            x_label = day_kolkata.strftime("%a (%d %b)")
+            
+            # TOOLTIP: "Monday – 12 Mar 2024"
+            tooltip_label = day_kolkata.strftime("%A – %d %b %Y")
 
             trends.append({
-                "x": day_kolkata.strftime("%a"),  # Sun, Mon, ... Sat
+                "x": x_label,
+                "tooltip_label": tooltip_label,
                 "applications": applications_count,
                 "logins": logins_count,
             })
+    
+    first_activity_index = -1
+    
+    # Iterate through the generated timeline to find the first non-zero entry
+    for i, item in enumerate(trends):
+        if item['applications'] > 0 or item['logins'] > 0:
+            first_activity_index = i
+            break
+    
+    # If we found active data, slice the list to start from there.
+    # If first_activity_index is -1, it means ALL data is zero. 
+    # In that case, we keep the full list so the user sees the empty timeline 
+    # (confirming no activity occurred during that period) rather than a broken/empty chart.
+    if first_activity_index != -1:
+        trends = trends[first_activity_index:]
 
     return jsonify({
         "metrics": {
@@ -1052,4 +1119,16 @@ def get_dashboard_data():
             "applications": total_applications,
         },
         "trends": trends,
+        "range_received": range_type,
+    })
+
+    return jsonify({
+        "metrics": {
+            "users": total_users,
+            "companies": total_companies,
+            "jobs": total_jobs,
+            "applications": total_applications,
+        },
+        "trends": trends,
+        "range_received": range_type,
     })
