@@ -44,6 +44,9 @@ def get_users():
         elif "email:" in search_term:
             email_term = search_term.split("email:")[1].strip()
             query = query.filter(User.email.ilike(f"%{email_term}%"))
+        elif "college:" in search_term:
+            college_term = search_term.split("college:")[1].strip()
+            query = query.filter(User.college_name.ilike(f"%{college_term}%"))
         else:
             search_term = f"%{search_term}%"
             query = query.filter(or_(

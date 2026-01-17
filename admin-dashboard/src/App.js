@@ -31,6 +31,7 @@ import {
     useLogout,
     useLogin,
     downloadCSV,
+    useDeleteMany,
 } from "react-admin";
 import jsonExport from 'jsonexport/dist';
 import {
@@ -59,7 +60,10 @@ import {
     Tooltip,
     IconButton,
     InputAdornment,
+    Chip,
 } from "@mui/material";
+import SearchIcon from '@mui/icons-material/Search';
+import DeleteIcon from '@mui/icons-material/Delete';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import {useCallback, useRef } from "react";
@@ -596,24 +600,124 @@ const customDataProvider = {
     },
 };
 
+const bulkDeleteSx = {
+    color: 'error.dark',
+    // Fix for hover state visibility
+    '&:hover': {
+        backgroundColor: 'error.main', // Solid red background
+        color: '#ffffff',              // White text
+        '& .MuiSvgIcon-root': {
+            color: '#ffffff',          // White icon
+        }
+    }
+};
+
+const CustomBulkDeleteButton = ({ confirmTitle, confirmContent }) => {
+    const { resource, selectedIds, onUnselectItems } = useListContext();
+    const [open, setOpen] = useState(false);
+    const [deleteMany, { isLoading }] = useDeleteMany();
+    const notify = useNotify();
+    const refresh = useRefresh();
+
+    const handleClick = (e) => {
+        e.stopPropagation();
+        setOpen(true);
+    };
+
+    const handleDialogClose = () => setOpen(false);
+
+    const handleConfirm = () => {
+        deleteMany(
+            resource,
+            { ids: selectedIds },
+            {
+                onSuccess: () => {
+                    notify('Resources deleted successfully', { type: 'success' });
+                    onUnselectItems(); // Clear selection
+                    refresh();
+                    setOpen(false);
+                },
+                onError: (error) => {
+                    notify(`Error: ${error.message}`, { type: 'error' });
+                    setOpen(false);
+                }
+            }
+        );
+    };
+
+    return (
+        <>
+            <Button
+                sx={bulkDeleteSx} // Uses the Red outline/hover style we defined earlier
+                onClick={handleClick}
+                startIcon={<DeleteIcon />}
+                disabled={isLoading}
+                size="small"
+            >
+                Delete
+            </Button>
+            <Dialog
+                open={open}
+                onClose={handleDialogClose}
+                aria-labelledby="alert-dialog-title"
+            >
+                <DialogTitle id="alert-dialog-title">
+                    {confirmTitle}
+                </DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        {confirmContent}
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions sx={{ p: 2 }}>
+                    {/* GRAY CANCEL BUTTON */}
+                    <Button 
+                        onClick={handleDialogClose} 
+                        color="inherit" 
+                        sx={{ color: 'text.secondary', fontWeight: 600 }}
+                        disabled={isLoading}
+                    >
+                        Cancel
+                    </Button>
+                    {/* RED CONFIRM BUTTON */}
+                    <Button 
+                        onClick={handleConfirm} 
+                        variant="contained" 
+                        color="error" 
+                        autoFocus
+                        disabled={isLoading}
+                        startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : null}
+                        sx={{ fontWeight: 600 }}
+                    >
+                        Confirm Delete
+                    </Button>
+                </DialogActions>
+            </Dialog>
+        </>
+    );
+};
+
 const UserBulkActionButtons = () => (
-    <BulkDeleteWithConfirmButton
+    <CustomBulkDeleteButton
         confirmTitle="Delete Job Seekers"
         confirmContent="Are you sure you want to delete the selected job seekers? This action cannot be undone."
+        sx={bulkDeleteSx}
     />
 );
 
 const CompanyBulkActionButtons = () => (
-    <BulkDeleteWithConfirmButton
+    <CustomBulkDeleteButton
         confirmTitle="Delete Companies"
         confirmContent="Are you sure you want to delete the selected companies? This action cannot be undone."
+        sx={bulkDeleteSx}
     />
 );
 
 const JobBulkActionButtons = () => (
-    <BulkDeleteWithConfirmButton
+    <CustomBulkDeleteButton
         confirmTitle="Delete Jobs"
         confirmContent="Are you sure you want to delete the selected jobs? This action cannot be undone."
+        sx={bulkDeleteSx}
     />
 );
 
@@ -1733,7 +1837,14 @@ const AddCompanyDialog = ({ open, handleClose }) => {
             </DialogContent>
             
             <DialogActions sx={{ p: 3, borderTop: `1px solid ${theme.palette.divider}`, gap: 2 }}>
-                <Button onClick={handleDialogClose} size="large">Cancel</Button>
+                <Button 
+                    onClick={handleDialogClose}
+                    size="large"
+                    color="inherit"
+                    sx={{ color: 'text.secondary', fontWeight: 600 }}
+                >
+                    Cancel
+                </Button>
                 <Button 
                     onClick={handleSubmit} 
                     variant="contained" 
@@ -1994,6 +2105,74 @@ TruncatedTextField.defaultProps = {
     addLabel: true,
 };
 
+const ScopedSearchInput = (props) => {
+    const { filterValues, setFilters } = useListContext();
+
+    // List of prefixes your backend recognizes
+    const prefixes = [
+        'name:', 'email:', 'college:', 
+        'company_name:', 'industry:', 
+        'title:', 'company:', 'job_type:', 'status:'
+    ];
+
+    // Check if the current search query starts with any known prefix
+    const currentQ = filterValues.q || '';
+    const activePrefix = prefixes.find(p => currentQ.startsWith(p));
+
+    // FORMAT: Runs when data goes from Store -> Input
+    // We strip the prefix so the user only sees the editable text
+    const format = (value) => {
+        if (activePrefix && value && value.startsWith(activePrefix)) {
+            return value.slice(activePrefix.length);
+        }
+        return value;
+    };
+
+    // PARSE: Runs when data goes from Input -> Store
+    // We add the prefix back so the backend receives "email:value"
+    const parse = (value) => {
+        if (activePrefix) {
+            return activePrefix + value;
+        }
+        return value;
+    };
+
+    // Handler to remove the chip (reset search)
+    const handleChipDelete = () => {
+        setFilters({ ...filterValues, q: '' }, null);
+    };
+
+    return (
+        <SearchInput
+            {...props}
+            format={format}
+            parse={parse}
+            InputProps={{
+                // If a prefix exists, show a Chip. If not, show the standard Search Icon.
+                startAdornment: activePrefix ? (
+                    <InputAdornment position="start">
+                        <Chip
+                            label={activePrefix.replace(':', '').replace('_', ' ')}
+                            onDelete={handleChipDelete}
+                            color="primary"
+                            size="small"
+                            sx={{ 
+                                height: 24,
+                                textTransform: 'capitalize',
+                                cursor: 'default'
+                            }}
+                        />
+                    </InputAdornment>
+                ) : (
+                    <InputAdornment position="start">
+                        <SearchIcon color="disabled" />
+                    </InputAdornment>
+                )
+            }}
+        />
+    );
+};
+
 // =============================================================================
 // == CORRECTED UserList COMPONENT ==
 // =============================================================================
@@ -2001,10 +2180,10 @@ const UserList = (props) => (
     <List 
         actions={<ListActions />}
         filters={[
-            <SearchInput 
-                source="q" 
-                alwaysOn 
-                placeholder="Search job seekers..." 
+            <ScopedSearchInput
+                source="q"
+                alwaysOn
+                placeholder="Search job seekers..."
                 sx={{ maxWidth: 400 }}
             />
         ]} 
@@ -2032,7 +2211,7 @@ const CompanyList = (props) => (
     <List 
         actions={<ListActions resource="companies" />}
         filters={[
-            <SearchInput 
+            <ScopedSearchInput 
                 source="q" 
                 alwaysOn 
                 placeholder="Search companies..." 
@@ -2063,7 +2242,7 @@ const JobList = (props) => (
     <List 
         actions={<ListActions />}
         filters={[
-            <SearchInput 
+            <ScopedSearchInput 
                 source="q" 
                 alwaysOn 
                 placeholder="Search jobs..." 

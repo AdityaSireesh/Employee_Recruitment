@@ -153,8 +153,14 @@ def signup():
         username = request.form['username']
         password = request.form['password']
         # confirm_password = request.form.get('confirm_password')
-        role = request.form.get('role', 'user') # Default to 'user'
+        role = request.form.get('role') # No default to 'user'
         email = request.form['email']
+
+        allowed_roles = ['user', 'company', 'college']
+        
+        if not role or role not in allowed_roles:
+            flash('Please select a valid role (Job Seeker, Company, or College).', 'danger')
+            return redirect(url_for('auth.signup'))
         
         if role == 'admin':
             role = 'user'  # Prevent admin signup via this route
