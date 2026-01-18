@@ -62,6 +62,11 @@ import {
     IconButton,
     InputAdornment,
     Chip,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogContentText,
+    DialogTitle,
 } from "@mui/material";
 import SearchIcon from '@mui/icons-material/Search';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -94,15 +99,6 @@ import EventIcon from '@mui/icons-material/Event';
 import FactoryIcon from '@mui/icons-material/Factory';
 import LockIcon from '@mui/icons-material/Lock';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
-import DeleteIcon from '@mui/icons-material/Delete';
-// import RefreshIcon from '@mui/icons-material/Refresh'; // REMOVED: RefreshIcon is no longer needed
-import { 
-    Dialog, // MUI Dialog
-    DialogActions, // MUI DialogActions
-    DialogContent, // MUI DialogContent
-    DialogContentText, // MUI DialogContentText
-    DialogTitle,// MUI DialogTitle
-} from "@mui/material";
 import './App.css';
 
 
@@ -615,90 +611,7 @@ const bulkDeleteSx = {
     }
 };
 
-const CustomBulkDeleteButton = ({ confirmTitle, confirmContent }) => {
-    const { resource, selectedIds, onUnselectItems } = useListContext();
-    const [open, setOpen] = useState(false);
-    const [deleteMany, { isLoading }] = useDeleteMany();
-    const notify = useNotify();
-    const refresh = useRefresh();
 
-    const handleClick = (e) => {
-        e.stopPropagation();
-        setOpen(true);
-    };
-
-    const handleDialogClose = () => setOpen(false);
-
-    const handleConfirm = () => {
-        deleteMany(
-            resource,
-            { ids: selectedIds },
-            {
-                onSuccess: () => {
-                    notify('Resources deleted successfully', { type: 'success' });
-                    onUnselectItems(); // Clear selection
-                    refresh();
-                    setOpen(false);
-                },
-                onError: (error) => {
-                    notify(`Error: ${error.message}`, { type: 'error' });
-                    setOpen(false);
-                }
-            }
-        );
-    };
-
-    return (
-        <>
-            <Button
-                sx={bulkDeleteSx} // Uses the Red outline/hover style we defined earlier
-                onClick={handleClick}
-                startIcon={<DeleteIcon />}
-                disabled={isLoading}
-                size="small"
-            >
-                Delete
-            </Button>
-            <Dialog
-                open={open}
-                onClose={handleDialogClose}
-                aria-labelledby="alert-dialog-title"
-            >
-                <DialogTitle id="alert-dialog-title">
-                    {confirmTitle}
-                </DialogTitle>
-                <DialogContent>
-                    <DialogContentText>
-                        {confirmContent}
-                    </DialogContentText>
-                </DialogContent>
-                <DialogActions sx={{ p: 2 }}>
-                    {/* GRAY CANCEL BUTTON */}
-                    <Button 
-                        onClick={handleDialogClose} 
-                        color="inherit" 
-                        sx={{ color: 'text.secondary', fontWeight: 600 }}
-                        disabled={isLoading}
-                    >
-                        Cancel
-                    </Button>
-                    {/* RED CONFIRM BUTTON */}
-                    <Button 
-                        onClick={handleConfirm} 
-                        variant="contained" 
-                        color="error" 
-                        autoFocus
-                        disabled={isLoading}
-                        startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : null}
-                        sx={{ fontWeight: 600 }}
-                    >
-                        Confirm Delete
-                    </Button>
-                </DialogActions>
-            </Dialog>
-        </>
-    );
-};
 
 const CustomBulkDeleteButton = ({ resourceName }) => {
     const { selectedIds, data } = useListContext();

@@ -153,7 +153,6 @@ def index():
 
 # ========== USERS API ==========
 
-# ========== USERS API ==========
 
 @app.route('/users/<uuid:id>', methods=['GET'])
 def get_user_details(id):
