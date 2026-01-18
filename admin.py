@@ -673,6 +673,13 @@ def get_jobs():
         elif "company:" in search_term:
             company_term = search_term.split("company:")[1].strip()
             query = query.filter(Company.company_name.ilike(f"%{company_term}%"))
+        elif "salary:" in search_term:
+            salary_term = search_term.split("salary:")[1].strip()
+            query = query.filter(Job.salary.ilike(f"%{salary_term}%"))
+        elif "vacancy:" in search_term:
+            vacancy_term = search_term.split("vacancy:")[1].strip()
+            # Cast integer to string to allow searching (e.g. searching "5" finds 5, 50, 15)
+            query = query.filter(func.cast(Job.total_vacancy, db.String).ilike(f"%{vacancy_term}%"))
         else:
             search_term = f"%{search_term}%"
             query = query.filter(or_(

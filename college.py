@@ -299,6 +299,9 @@ def college_profile():
 
         # ------------------------- SAVE -------------------------
         if not message:
+            old_name = colleges.college_name
+            name_changed = (old_name != college_name)
+
             colleges.college_name = college_name
             colleges.description = description
             colleges.email = email
@@ -306,10 +309,22 @@ def college_profile():
             colleges.website = website
             colleges.logo = logo
 
-            db.session.commit()
+            if name_changed:
+                try:
+                    User.query.filter(User.college_name == old_name).update(
+                        {User.college_name: college_name}, 
+                        synchronize_session=False
+                    )
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Error updating linked users: {e}")
+                    message = "Profile updated, but failed to update student records."
+                    message_type = "warning"
 
-            message = "Profile updated successfully!"
-            message_type = "success"
+            if not message or message_type != "warning":
+                db.session.commit()
+                message = "Profile updated successfully!"
+                message_type = "success"
 
     student_count = db.session.query(db.func.count(User.id)) \
         .filter(User.college_name == colleges.college_name if colleges else '') \
@@ -357,6 +372,7 @@ def college_studenttracking():
      .join(Job, Job.job_id == JobApplication.job_id)\
      .join(Company, Company.login_id == Job.created_by)\
      .filter(Coupon.college_id == college_profile.id)\
+     .order_by(JobApplication.status_updated_at.desc())\
      .all()
 
     return render_template('/college/student_tracking.html',
@@ -551,12 +567,14 @@ def college_endorsement():
         User.is_banned,
         Coupon.faculty_id,
         Coupon.year,
-        User.id.label('user_id')
+        User.id.label('user_id'),
+        Couponuser.created_at
     ).join(Couponuser, Couponuser.coupon_id == Coupon.id)\
     .join(User, Couponuser.user_id == User.id)\
     .join(Certification, Certification.user_id == User.id)\
     .filter(Coupon.college_id == college_profile.id)\
     .distinct()\
+    .order_by(Couponuser.created_at.desc()) \
     .all()
     return render_template('/college/endorse.html', 
         coupon_users=coupon_users,

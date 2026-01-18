@@ -520,7 +520,7 @@ def company_application_review():
         )
 
     # Get all filtered job applications
-    job_applications = query.all()
+    job_applications = query.order_by(JobApplication.status_updated_at.desc()).all()
     
     # Create a list of applications with details for rendering
     applications_data = []
@@ -605,7 +605,7 @@ def company_hiring_communication():
         .join(JobApplication, JobApplication.user_id == User.id)
         .join(Job, JobApplication.job_id == Job.job_id)
         .filter(Job.created_by == user_id)
-        .order_by(User.id, JobApplication.id.desc())
+        .order_by(JobApplication.status_updated_at.desc())
         .all()
     )
     
@@ -630,7 +630,7 @@ def company_hiring_communication():
                 )
             )
 
-        applied_users = filtered_query.all()
+        applied_users = filtered_query.order_by(JobApplication.status_updated_at.desc()).all()
 
     # Fetch communication history with structured data for JavaScript
     messages_query = (
@@ -767,7 +767,7 @@ def company_notification():
 
     # Get the page number from the URL, default to 1
     page = request.args.get('page', 1, type=int)
-    per_page = 2  # Number of notifications per page
+    per_page = 5  # Number of notifications per page
     # Fetch a paginated list of notifications for the company
     notifications_pagination = Notification.query.filter_by(company_id=user_id, hidden=False)\
                                     .order_by(Notification.timestamp.desc())\

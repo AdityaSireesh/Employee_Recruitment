@@ -64,6 +64,7 @@ import {
 } from "@mui/material";
 import SearchIcon from '@mui/icons-material/Search';
 import DeleteIcon from '@mui/icons-material/Delete';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import {useCallback, useRef } from "react";
@@ -1309,7 +1310,10 @@ const FilterDropdown = () => {
                     { label: "Title", value: "title:", icon: <WorkIcon /> },
                     { label: "Company", value: "company:", icon: <FactoryIcon /> },
                     { label: "Job Type", value: "job_type:", icon: <CategoryIcon /> },
-                    { label: "Status", value: "status:", icon: <LockIcon /> }
+                    { label: "Status", value: "status:", icon: <LockIcon /> },
+                    { label: "Location", value: "location:", icon: <LocationOnIcon /> },
+                    { label: "Salary", value: "salary:", icon: <AttachMoneyIcon /> },
+                    { label: "Total Vacancy", value: "vacancy:", icon: <PeopleAltIcon /> }
                 ];
             default:
                 return [];
@@ -2112,7 +2116,8 @@ const ScopedSearchInput = (props) => {
     const prefixes = [
         'name:', 'email:', 'college:', 
         'company_name:', 'industry:', 
-        'title:', 'company:', 'job_type:', 'status:'
+        'title:', 'company:', 'job_type:', 'status:',
+        'location:', 'salary:', 'vacancy:'
     ];
 
     // Check if the current search query starts with any known prefix
