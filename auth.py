@@ -149,7 +149,14 @@ def validate_email_domain(email):
 @auth_blueprint.route('/signup', methods=['GET', 'POST'])
 @no_cache
 def signup():
+    form_data = session.pop('signup_form_data', {})
+
     if request.method == 'POST':
+        current_form_data = request.form.to_dict()
+        if 'password' in current_form_data:
+            del current_form_data['password'] 
+        session['signup_form_data'] = current_form_data
+
         username = request.form['username']
         password = request.form['password']
         # confirm_password = request.form.get('confirm_password')
@@ -207,7 +214,7 @@ def signup():
         if len(password) < 8:
             flash('Password must be at least 8 characters long.', 'danger')
             return redirect(url_for('auth.signup'))
-        if len(password) > 250:
+        if len(password) > 30:
             flash('Password length is too long.', 'danger')
             return redirect(url_for('auth.signup'))
        
@@ -265,10 +272,12 @@ def signup():
             return redirect(url_for('auth.signup'))
 
         db.session.commit()
+        session.pop('signup_form_data', None)
+
         flash('Signup successful! Please log in.', 'success')
         return redirect(url_for('auth.login'))
 
-    return render_template('signup.html')
+    return render_template('signup.html', form_data=form_data)
 
 @auth_blueprint.route('/clear-history')
 def clear_history():

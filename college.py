@@ -293,6 +293,10 @@ def college_profile():
                     message = "Logo URL must contain a valid domain (e.g., http://example.com)."
                     message_type = "error"
 
+                elif re.search(r"\.(html|htm|php|asp|jsp)(\?.*)?$", logo, re.IGNORECASE):
+                    message = "The URL looks like a webpage. Please provide an image address."
+                    message_type = "error"
+
         # ------------------------- SAVE -------------------------
         if not message:
             colleges.college_name = college_name

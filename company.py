@@ -886,6 +886,10 @@ def company_profile():
                     ):
                         message = "Logo URL must contain a valid domain (e.g., http://example.com)."
                         message_type = "error"
+
+                    elif re.search(r"\.(html|htm|php|asp|jsp)(\?.*)?$", logo, re.IGNORECASE):
+                        message = "The URL looks like a webpage. Please provide an image address."
+                        message_type = "error"
             
             if not message:
                 companies.company_name = company_name

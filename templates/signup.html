@@ -76,20 +76,22 @@
                 <div class="form-group">
                     <label for="username"><p style="color: red; display: inline;">* </p>Username</label>
                     <input type="text" id="username" name="username" minlength="3" maxlength="30"
-required title="Username must be between 3 and 30 characters long.
+                        value="{{ form_data.get('username', '') }}" required 
+                        title="Username must be between 3 and 30 characters long.
 Username cannot be 'admin' or 'administrator'.
 Username cannot contain spaces.
 Username cannot start or end with an underscore (_) or period (.)
-Username must be a single word (letters/numbers only) and a valid email.">
+Username must be a single word (letters/numbers only).">
                 </div>
                 <div class="form-group">
                     <label for="email"><p style="color: red; display: inline;">* </p>Email</label>
-                    <input type="email" id="email" name="email" required title="Please use a valid email (e.g., user@domain.com).">
+                    <input type="email" id="email" name="email" value="{{ form_data.get('email', '') }}" required title="Please use a valid email (e.g., user@domain.com).">
                 </div>
                 <div class="form-group">
                     <label for="password"><p style="color: red; display: inline;">* </p>Password</label>
                     <div class="password-container">
-                        <input type="password" id="password" name="password" required title="Password must be at least 8 characters. 
+                        <input type="password" id="password" name="password" minlength="8" maxlength="30" required 
+                            title="Password must be at least 8 characters. 
 Password can only contain letters, numbers, and special characters @#$%^&+=">
                         <span class="material-icons password-toggle" id="togglePassword" onclick="togglePassword()">visibility</span>
                     </div>
@@ -98,10 +100,10 @@ Password can only contain letters, numbers, and special characters @#$%^&+=">
                 <div class="form-group">
                     <label for="role"><p style="color: red; display: inline;">* </p>Role</label>
                     <select id="role" name="role" required>
-                        <option value="" disabled selected>Select Role</option>
-                        <option value="user">Job Seeker</option>
-                        <option value="company">Company</option>
-                        <option value="college">College</option>
+                        <option value="" disabled {% if not form_data.get('role') %}selected{% endif %}>Select Role</option>
+                        <option value="user" {% if form_data.get('role') == 'user' %}selected{% endif %}>Job Seeker</option>
+                        <option value="company" {% if form_data.get('role') == 'company' %}selected{% endif %}>Company</option>
+                        <option value="college" {% if form_data.get('role') == 'college' %}selected{% endif %}>College</option>
                         <!-- <option value="admin">Admin</option> -->
                     </select>
                 </div>
@@ -139,50 +141,6 @@ Password can only contain letters, numbers, and special characters @#$%^&+=">
         const signupForm = document.getElementById('signup-form');
         // Define the fields to save (excluding password for security)
         const signupFormFields = ['username', 'email', 'role'];
-
-        function saveSignupToSession() {
-            const formData = {};
-            signupFormFields.forEach(fieldId => {
-                const element = document.getElementById(fieldId);
-                if (element) {
-                    formData[fieldId] = element.value;
-                }
-            });
-            sessionStorage.setItem('signupFormData', JSON.stringify(formData));
-        }
-
-        function loadSignupFromSession() {
-            const savedData = sessionStorage.getItem('signupFormData');
-            if (savedData) {
-                const formData = JSON.parse(savedData);
-                signupFormFields.forEach(fieldId => {
-                    const element = document.getElementById(fieldId);
-                    if (element && formData[fieldId]) {
-                        element.value = formData[fieldId];
-                    }
-                });
-            }
-        }
-
-        function clearSignupSessionData() {
-            sessionStorage.removeItem('signupFormData');
-        }
-
-        // Add event listeners when the page is ready
-        document.addEventListener('DOMContentLoaded', function() {
-            loadSignupFromSession();
-
-            // Attach event listeners to all fields to save on input
-            signupFormFields.forEach(fieldId => {
-                const element = document.getElementById(fieldId);
-                if (element) {
-                    element.addEventListener('input', saveSignupToSession);
-                }
-            });
-
-            // Clear session data upon successful submission
-            signupForm.addEventListener('submit', clearSignupSessionData);
-        });
 
         // Password toggle function
         function togglePassword() {
