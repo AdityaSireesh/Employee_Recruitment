@@ -489,14 +489,17 @@
                 // Define which templates are for which status
                 const isPendingTemplate = option.value.includes('Thank you for applying') || option.value.includes('schedule an interview');
                 const isInterviewedTemplate = option.value.includes('Congratulations!') || option.value.includes('regret to inform you');
+                const isHiredTemplate = option.value.includes('Congratulations!'); // Allow offer letter for hired candidates
 
                 // Apply the logic
                 if (status === 'Pending') {
                     option.disabled = !isPendingTemplate;
                 } else if (status === 'Interviewed') {
                     option.disabled = !isInterviewedTemplate;
+                } else if (status === 'Hired') {
+                    option.disabled = !isHiredTemplate;
                 } else { 
-                    // For 'Hired', 'Rejected', or any other status, disable all templates
+                    // For 'Rejected' or any other status, disable all templates
                     option.disabled = true;
                 }
             });

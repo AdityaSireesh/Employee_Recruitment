@@ -31,7 +31,8 @@ import {
     useLogout,
     useLogin,
     downloadCSV,
-    useDeleteMany,
+    useUnselectAll,
+    useDeleteMany
 } from "react-admin";
 import jsonExport from 'jsonexport/dist';
 import {
@@ -93,6 +94,7 @@ import EventIcon from '@mui/icons-material/Event';
 import FactoryIcon from '@mui/icons-material/Factory';
 import LockIcon from '@mui/icons-material/Lock';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import DeleteIcon from '@mui/icons-material/Delete';
 // import RefreshIcon from '@mui/icons-material/Refresh'; // REMOVED: RefreshIcon is no longer needed
 import { 
     Dialog, // MUI Dialog
@@ -698,28 +700,103 @@ const CustomBulkDeleteButton = ({ confirmTitle, confirmContent }) => {
     );
 };
 
+const CustomBulkDeleteButton = ({ resourceName }) => {
+    const { selectedIds, data } = useListContext();
+    const [open, setOpen] = useState(false);
+    const notify = useNotify();
+    const refresh = useRefresh();
+    const unselectAll = useUnselectAll(resourceName);
+    const [deleteMany, { isLoading }] = useDeleteMany();
+
+    const handleClick = (e) => {
+        e.stopPropagation();
+        setOpen(true);
+    };
+
+    const handleDialogClose = () => {
+        setOpen(false);
+    };
+
+    const handleConfirm = () => {
+        deleteMany(
+            resourceName,
+            { ids: selectedIds },
+            {
+                onSuccess: () => {
+                    const count = selectedIds.length;
+                    let message = '';
+                    const singularMap = { 'users': 'Job seeker', 'companies': 'Company', 'jobs': 'Job' };
+                    
+                    const entityName = singularMap[resourceName] || resourceName;
+                    
+                    if (count === 1) {
+                         message = `${entityName} deleted successfully.`;
+                    } else {
+                         let pluralEntity = entityName.toLowerCase() + 's';
+                         // Handle exceptions if complex, but here simply:
+                         if (resourceName === 'companies') pluralEntity = 'companies';
+                         
+                         message = `${count} ${pluralEntity} deleted successfully.`;
+                    }
+                    
+                    notify(message, { type: 'success' });
+                    unselectAll();
+                    refresh();
+                    setOpen(false);
+                },
+                onError: (error) => {
+                    notify(`Error: ${error.message}`, { type: 'error' });
+                    setOpen(false);
+                }
+            }
+        );
+    };
+    
+    const selectedRecords = data ? data.filter(record => selectedIds.includes(record.id)) : [];
+    
+    let dialogTitle = "Delete Confirmation";
+    let dialogContent = "Are you sure you want to delete these items?";
+    
+    if (selectedIds.length === 1 && selectedRecords.length === 1) {
+        const record = selectedRecords[0];
+        const name = record.name || record.company_name || record.title || 'this item';
+        dialogContent = `Are you sure you want to delete "${name}"?`;
+    } else if (selectedIds.length > 0) {
+         dialogContent = `Are you sure you want to delete ${selectedIds.length} items?`;
+    }
+
+    return (
+        <>
+            <Button 
+                onClick={handleClick} 
+                color="error"
+                sx={{color: 'error.main', textTransform: 'none'}}
+                startIcon={<DeleteIcon />}
+            >
+                Delete
+            </Button>
+            <Confirm
+                isOpen={open}
+                loading={isLoading}
+                title={dialogTitle}
+                content={dialogContent}
+                onConfirm={handleConfirm}
+                onClose={handleDialogClose}
+            />
+        </>
+    );
+};
+
 const UserBulkActionButtons = () => (
-    <CustomBulkDeleteButton
-        confirmTitle="Delete Job Seekers"
-        confirmContent="Are you sure you want to delete the selected job seekers? This action cannot be undone."
-        sx={bulkDeleteSx}
-    />
+    <CustomBulkDeleteButton resourceName="users" />
 );
 
 const CompanyBulkActionButtons = () => (
-    <CustomBulkDeleteButton
-        confirmTitle="Delete Companies"
-        confirmContent="Are you sure you want to delete the selected companies? This action cannot be undone."
-        sx={bulkDeleteSx}
-    />
+    <CustomBulkDeleteButton resourceName="companies" />
 );
 
 const JobBulkActionButtons = () => (
-    <CustomBulkDeleteButton
-        confirmTitle="Delete Jobs"
-        confirmContent="Are you sure you want to delete the selected jobs? This action cannot be undone."
-        sx={bulkDeleteSx}
-    />
+    <CustomBulkDeleteButton resourceName="jobs" />
 );
 
 const metricIcons = {
@@ -2026,7 +2103,7 @@ const BanToggle = ({ record, resource }) => {
                         newValue ? 'User has been banned' : 'User has been unbanned',
                         { type: 'success' }
                     );
-                    refresh(); 
+                    // refresh(); // Removed to prevent list reordering
                 },
                 onError: (error) => {
                     setIsBanned(!newValue); 
@@ -2192,6 +2269,7 @@ const UserList = (props) => (
                 sx={{ maxWidth: 400 }}
             />
         ]} 
+        sort={{ field: 'created_at', order: 'DESC' }}
         empty={false} // This prevents React Admin from showing its own empty component
         {...props}
     >
@@ -2223,6 +2301,7 @@ const CompanyList = (props) => (
                 sx={{ maxWidth: 400 }}
             />
         ]}
+        sort={{ field: 'created_at', order: 'DESC' }}
         empty={false} // This prevents React Admin from showing its own empty component
         {...props}
     >
@@ -2254,6 +2333,7 @@ const JobList = (props) => (
                 sx={{ maxWidth: 500 }}
             />
         ]} 
+        sort={{ field: 'created_at', order: 'DESC' }}
         empty={false} // This prevents React Admin from showing its own empty component
         {...props}
     >

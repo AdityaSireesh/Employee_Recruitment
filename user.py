@@ -146,7 +146,7 @@ def apply_for_job(job_id):
         return redirect(url_for('user.user_dashboard'))
 
     # Fetch the user's resume from the ResumeCertification table
-    resume_certification = ResumeCertification.query.filter_by(user_id=user.id).first()
+    resume_certification = ResumeCertification.query.filter_by(user_id=user.id).order_by(ResumeCertification.uploaded_at.desc()).first()
     
     if not resume_certification or not resume_certification.resume_path:
         flash("You must upload a resume to apply for a job.", 'error')
@@ -183,8 +183,7 @@ def apply_for_job(job_id):
     db.session.commit()
 
     flash(f"Application for {job.title} submitted successfully!", 'success')
-
-    return redirect(url_for('user.user_dashboard'))
+    return redirect(request.referrer or url_for('user.user_dashboard'))
 
 from datetime import datetime, timedelta
 import pytz
@@ -264,51 +263,133 @@ def get_chart_data_for_user(user_id):
     
     application_trends = {"labels": date_range, "counts": count_range}
     
-    # Recent activities: Last 5 job applications with job title and company name
-    recent_activities = db.session.query(JobApplication, Job.title, Company.company_name)\
+    # ==============================================================================
+    # CONSOLIDATED LIVE FEED (Recent 5 Interactions)
+    # ==============================================================================
+    
+    # 1. Job Applications (User applied)
+    # ------------------------------------------------------------------------------
+    recent_applications = db.session.query(JobApplication, Job.title, Company.company_name)\
         .join(Job, Job.job_id == JobApplication.job_id)\
         .join(Login, Login.id == Job.created_by)\
         .join(Company, Company.login_id == Login.id)\
         .filter(JobApplication.user_id == user_id)\
         .order_by(JobApplication.date_applied.desc())\
         .limit(5).all()
-    
-    recent_activities_list = [
-        {
-            'job_title': f"{job_title} ({company_name})",
-            'status': app.status
-        }
-        for app, job_title, company_name in recent_activities
-    ]
-    
-    # Live feed: Last 5 job postings with company name
-    live_feed = db.session.query(Job.title, Job.created_at, Company.company_name)\
+
+    # 2. Status Updates (Status changed)
+    # ------------------------------------------------------------------------------
+    # We filter where status_updated_at is different from date_applied (approx) 
+    # or just show all status updates that are recent.
+    # For simplicity, we'll fetch recent applications and check if status is not 'Pending'
+    # In a real event sourcing system, these would be separate table entries.
+    recent_updates = db.session.query(JobApplication, Job.title, Company.company_name)\
+        .join(Job, Job.job_id == JobApplication.job_id)\
+        .join(Login, Login.id == Job.created_by)\
+        .join(Company, Company.login_id == Login.id)\
+        .filter(
+            JobApplication.user_id == user_id,
+            JobApplication.status != 'Pending'
+        )\
+        .order_by(JobApplication.status_updated_at.desc())\
+        .limit(5).all()
+
+    # 3. New Job Postings (Platform activity)
+    # ------------------------------------------------------------------------------
+    recent_jobs = db.session.query(Job.title, Job.created_at, Company.company_name)\
         .join(Login, Login.id == Job.created_by)\
         .join(Company, Company.login_id == Login.id)\
         .filter(Job.deadline >= current_date)\
         .order_by(Job.created_at.desc())\
         .limit(5).all()
-    
-    live_feed_list = []
-    for job_title, created_at, company_name in live_feed:
-        if created_at:
-            # Ensure we have a UTC datetime for consistent frontend conversion
-            if created_at.tzinfo is None:
-                # If datetime is naive, assume it's UTC
-                utc_datetime = pytz.utc.localize(created_at)
-            else:
-                # If datetime is aware, convert to UTC
-                utc_datetime = created_at.astimezone(pytz.utc)
-        else:
-            utc_datetime = None
-            
-        # Format job title with company in brackets
-        formatted_title = f"{job_title} ({company_name})"
-        
-        live_feed_list.append({
-            'job_title': formatted_title, 
-            'posted_at': utc_datetime
+
+    # Merge and Normalize
+    # ------------------------------------------------------------------------------
+    consolidated_feed = []
+
+    # Process Applications
+    for app, job_title, company_name in recent_applications:
+        consolidated_feed.append({
+            'activity': f"Applied for {job_title} at {company_name}",
+            'timestamp': app.date_applied,
+            'type': 'application'
         })
+    
+    # Process Updates
+    for app, job_title, company_name in recent_updates:
+        # Check timestamps to avoid showing "Applied" and "Status Updated" as duplicates if they happen instantly (e.g. auto-reject)
+        # But for now, we'll just add them.
+         consolidated_feed.append({
+            'activity': f"Application status updated to '{app.status}' for {job_title}",
+            'timestamp': app.status_updated_at,
+            'type': 'status_update'
+        })
+
+    # Process New Jobs
+    for job_title, created_at, company_name in recent_jobs:
+        consolidated_feed.append({
+            'activity': f"New job posted: {job_title} at {company_name}",
+            'timestamp': created_at,
+            'type': 'job_post'
+        })
+
+    # Sort by Timestamp Descending
+    # ------------------------------------------------------------------------------
+    # Ensure all timestamps are timezone-aware (UTC) before sorting
+    for item in consolidated_feed:
+        ts = item['timestamp']
+        if ts:
+            if ts.tzinfo is None:
+                item['timestamp'] = pytz.utc.localize(ts)
+            else:
+                item['timestamp'] = ts.astimezone(pytz.utc)
+        else:
+            # Fallback for missing timestamps
+             item['timestamp'] = pytz.utc.localize(datetime.min)
+
+    consolidated_feed.sort(key=lambda x: x['timestamp'], reverse=True)
+    
+    # Take top 5
+    live_feed_list = consolidated_feed[:5]
+    
+    # We keep recent_activities as empty or separate if needed, but per request, 
+    # we are consolidating into 'live_feed'. The 'recent_activities' variable 
+    # is still used in the return signature, so we should keep it populated 
+    # OR update the return signature. The user said "consolidate", likely meaning 
+    # the "Live Feed" on UI should show this. 
+    # The current UI has TWO tables. "Recent Activities" (User's stuff) and "Live Feed" (Job postings).
+    # The request says "consolidated... put into a table which shows the latest 5 interaction as live feed".
+    # This implies ONE table.
+    
+    # Let's populate 'live_feed_list' with the consolidated data.
+    # We will pass this consolidated list as 'live_feed' to the template.
+    # We can pass an empty list for 'recent_activities' or just ignore it in template.
+    
+    # However, to be safe and "not break current idea", we will pass the SAME consolidated list
+    # or just keep 'recent_activities_list' as the user-specific subset if needed.
+    # But user asked to "consolidate".
+    
+    # Let's populate recent_activities_list with just the User Actions subset for backward compat if needed,
+    # or just replicate the feed if the UI expects two lists.
+    # Actuallly, the prompt implies replacing the "Live Feed" content.
+    # I will pass the consolidated list as `live_feed_list` and keep `recent_activities_list` 
+    # as just the application history to avoid breaking the "Recent Activities" table if the user decides to keep it.
+    # Wait, the user said "Live Feed... doesn't have updated at... modify to display last 5 interactions... put into a table... as live feed".
+    # This suggests the "Live Feed" section should now become this consolidated feed.
+    
+    # I will leave recent_activities_list as is (Application History) for the "Recent Activities" table 
+    # (which we just fixed sorting for) unless the user wants to REMOVE that table.
+    # The user said "consolidate... into a table... as live feed".
+    # So I will overwrite `live_feed_list` with the consolidated data.
+    
+    # Using existing logic for recent_activities_list (User specific)
+    recent_activities_list = [
+        {
+            'job_title': f"{job_title} ({company_name})",
+            'status': app.status
+        }
+        for app, job_title, company_name in recent_applications 
+    ]
     
     return user_success_rate, application_trends, recent_activities_list, live_feed_list
 
@@ -497,6 +578,14 @@ def resume_certifications():
             if not os.path.exists(upload_folder):
                 os.makedirs(upload_folder)
             resume = request.files.get('resume')
+            # Check for 0-byte file
+            resume.seek(0, os.SEEK_END)
+            file_length = resume.tell()
+            resume.seek(0)  # Reset cursor
+            if file_length == 0:
+                flash("File cannot be empty.", "error")
+                return redirect(url_for('user.resume_certifications'))
+            
             if resume and allowed_file(resume.filename):
                 resume_filename = secure_filename(resume.filename)
                 resume_path = os.path.join(upload_folder, f"resume_{users.name}_{resume_filename}")
@@ -511,25 +600,37 @@ def resume_certifications():
                 
         elif 'certification_name' in request.form:
             # Handle Certification/Skill Additions
-            certification_name = request.form.get('certification_name').strip()
-            if certification_name:
-                # Check if certification already exists (case insensitive)
-                existing_certification = Certification.query.filter(
-                    Certification.user_id == users.id,
-                    db.func.lower(Certification.certification_name) == certification_name.lower()
-                ).first()
+            raw_input = request.form.get('certification_name', '')
+            skill_names = [s.strip() for s in raw_input.split(',') if s.strip()]
+            
+            if skill_names:
+                added_skills = []
+                duplicate_skills = []
                 
-                if existing_certification:
-                    flash(f'Skill "{certification_name}" already exists in your profile!', 'warning')
-                else:
-                    certification = Certification(
-                        user_id=users.id,
-                        certification_name=certification_name,
-                        verification_status=False
-                    )
-                    db.session.add(certification)
+                for skill_name in skill_names:
+                    # Check if certification already exists (case insensitive)
+                    existing_certification = Certification.query.filter(
+                        Certification.user_id == users.id,
+                        db.func.lower(Certification.certification_name) == skill_name.lower()
+                    ).first()
+                    
+                    if existing_certification:
+                        duplicate_skills.append(skill_name)
+                    else:
+                        certification = Certification(
+                            user_id=users.id,
+                            certification_name=skill_name,
+                            verification_status=False
+                        )
+                        db.session.add(certification)
+                        added_skills.append(skill_name)
+                
+                if added_skills:
                     db.session.commit()
-                    flash(f'Skill "{certification_name}" added successfully!', 'success')
+                    flash(f'Skills added: {", ".join(added_skills)}', 'success')
+                
+                if duplicate_skills:
+                    flash(f'Skills already exist: {", ".join(duplicate_skills)}', 'warning')
             else:
                 flash('Please enter a skill name.', 'error')
         
@@ -538,8 +639,8 @@ def resume_certifications():
     # Retrieve dynamic chart data, recent activities, and live feed using the helper function
     user_success_rate, applications_overview, recent_activities, live_feed = get_chart_data_for_user(user_id)
     
-    # Retrieve data for display
-    resumes = ResumeCertification.query.filter_by(user_id=user_id).all()
+    # Retrieve data for display - Sorted by uploaded_at descending
+    resumes = ResumeCertification.query.filter_by(user_id=user_id).order_by(ResumeCertification.uploaded_at.desc()).all()
     certifications = Certification.query.filter_by(user_id=user_id).all()
     
     return render_template(
@@ -592,6 +693,51 @@ def application_history():
         recent_activities=recent_activities,
         live_feed=live_feed
     )
+
+@user_blueprint.route('/api/application_v2/<uuid:application_id>', methods=['GET'])
+@no_cache
+@login_required
+def get_application_details_api(application_id):
+    """API endpoint to get fresh application details"""
+    try:
+        # Force a session refresh to ensure we get the latest data from DB
+        # This handles cases where the status was updated by another user (Company)
+        db.session.commit()
+        db.session.expire_all()
+        
+        user_pk = session.get('user_id')
+        if not user_pk:
+            return jsonify({'error': 'Unauthorized'}), 401
+
+        # Fetch the application making sure it belongs to the logged-in user
+        application = JobApplication.query.filter_by(id=application_id, user_id=user_pk).first()
+        
+        if not application:
+            return jsonify({'error': 'Application not found'}), 404
+            
+        # Get related data
+        job = Job.query.get(application.job_id)
+        # Using the same join logic as used elsewhere to get company name
+        # Job -> Login (created_by) -> Company
+        company_name = "Unknown Company"
+        if job:
+            creator = Login.query.get(job.created_by)
+            if creator:
+                company_record = Company.query.filter_by(login_id=creator.id).first()
+                if company_record:
+                    company_name = company_record.company_name
+
+        return jsonify({
+            'id': application.id,
+            'job_title': job.title if job else "Unknown Job",
+            'company_name': company_name,
+            'status': application.status,
+            'date_applied': application.date_applied.isoformat() if application.date_applied else None,
+            'status_updated_at': application.status_updated_at.isoformat() if application.status_updated_at else None
+        })
+    except Exception as e:
+        print(f"Error fetching application details: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
 import re
 import requests
 from urllib.parse import urlparse
@@ -648,41 +794,28 @@ def profile():
     if not user_id:
         flash('You need to log in to access your profile.', 'error')
         return redirect(url_for('auth.login'))
-    users = User.query.filter_by(id=user_id).first()
-    if not users:
+        
+    user = User.query.get(user_id)
+    if not user:
         flash('User not found.', 'error')
         return redirect(url_for('user.user_dashboard'))
-    login_id = session.get('login_id')  # Use 'login_id' instead of 'user_id'
-    if not login_id:
-        flash("User not logged in", "error")
-        return redirect(url_for('auth.login'))
-   
-    # Ensure that only regular users access this page
-    if session.get('role') != 'user':
-        return redirect(url_for('auth.login'))
-   
-    # Get the User object using login_id from the Login table
-    user = User.query.filter_by(login_id=login_id).first()
-    if not user:
-        flash("User not found", "error")
-        return redirect(url_for('auth.login'))
+    
+    # Retrieve related data
     resumes = ResumeCertification.query.filter_by(user_id=user_id).all()
     certifications = Certification.query.filter_by(user_id=user_id).all()
 
-    # Get user's coupon information if they have one
+    # Get user's coupon information
     user_coupon_mapping = Couponuser.query.filter_by(user_id=user_id).first()
     user_coupon = None
     if user_coupon_mapping:
         user_coupon = Coupon.query.filter_by(id=user_coupon_mapping.coupon_id).first()
 
-    # Other data for charts, etc.
     edit_mode = request.args.get('edit', 'false').lower() == 'true'
-
-    # Dictionary to hold form values for template repopulation on error
     form_values = {}
+    errors = {}
 
     if request.method == 'POST':
-        # Get raw inputs first for invalid char check and repopulation
+        # Get raw inputs
         raw_name = request.form.get('name', '').strip()
         raw_email = request.form.get('email', '').strip()
         raw_phone = request.form.get('phone', '').strip()
@@ -692,7 +825,7 @@ def profile():
         raw_profile_pic_url = request.form.get('profile_pic_url', '').strip()
         raw_coupon_code = request.form.get('coupon_code', '').strip()
 
-        # Store raw values for repopulation
+        # Store for repopulation
         form_values = {
             'name': raw_name,
             'email': raw_email,
@@ -704,22 +837,24 @@ def profile():
             'coupon_code': raw_coupon_code
         }
 
-        # Check for invalid characters (< or >) in all text fields
+        # 1. Invalid Character Check (< or >)
         text_fields_to_check = [
-            ('Name', raw_name),
-            ('Email', raw_email),
-            ('Phone', raw_phone),
-            ('College Name', raw_manual_college),
-            ('About Me', raw_about_me),
-            ('Profile Picture URL', raw_profile_pic_url),
-            ('Coupon Code', raw_coupon_code)
+            ('Name', raw_name, 'name'),
+            ('Email', raw_email, 'email'),
+            ('Phone', raw_phone, 'phone'),
+            ('College Name', raw_manual_college, 'college_name'),
+            ('About Me', raw_about_me, 'about_me'),
+            ('Profile Picture URL', raw_profile_pic_url, 'profile_pic_url'),
+            ('Coupon Code', raw_coupon_code, 'coupon_code')
         ]
-        for field_name, raw_value in text_fields_to_check:
+        for field_label, raw_value, field_key in text_fields_to_check:
             if '<' in raw_value or '>' in raw_value:
-                flash(f"Invalid characters (< or >) not allowed in {field_name} field.", "error")
-                return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+                errors[field_key] = f"Invalid characters (< or >) not allowed in {field_label}."
+        
+        if errors:
+             return render_template('/user/profile.html', user=user, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values, errors=errors)
 
-        # Sanitize inputs after invalid char check
+        # Sanitize inputs
         name_input = sanitize_text(raw_name)
         email_input = sanitize_text(raw_email)
         phone_input = sanitize_text(raw_phone)
@@ -729,136 +864,99 @@ def profile():
         profile_pic_url = sanitize_text(raw_profile_pic_url)
         coupon_code = sanitize_text(raw_coupon_code)
 
-        # Validate name
+        # 2. Name Validation
         if not name_input:
-            flash("Name is required.", "error")
-            return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+            errors['name'] = "Name is required."
+        elif not re.match(r"^[a-zA-Z\s\.\']+$", name_input):
+            errors['name'] = "Name must contain only letters, spaces, dots, or apostrophes."
         elif len(name_input) < 2:
-            flash("Name must be at least 2 characters long.", "error")
-            return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+            errors['name'] = "Name must be at least 2 characters long."
         elif len(name_input) > 100:
-            flash("Name cannot exceed 100 characters.", "error")
-            return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+            errors['name'] = "Name cannot exceed 100 characters."
 
-        # Validate email
+        # 3. Email Validation
         if not email_input:
-            flash("Email is required.", "error")
-            return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+            errors['email'] = "Email is required."
         elif not is_valid_email(email_input):
-            flash("Please enter a valid email address (name@domain.com).", "error")
-            return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
-        elif email_input != users.email:
-            # Check for uniqueness only if email changed
+            errors['email'] = "Please enter a valid email address."
+        elif email_input != user.email:
             existing_email_user = User.query.filter_by(email=email_input).first()
             if existing_email_user:
-                flash("This email is already registered to another user.", "error")
-                return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+                errors['email'] = "This email is already registered."
 
-        # Validate phone number if provided
+        # 4. Phone Validation
         if phone_input:
-            # Check if phone contains only digits
             if not phone_input.isdigit():
-                return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
-            # Check phone length
-            if len(phone_input) < 10 or len(phone_input) > 15:
-                return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
-            # Check if phone number already exists for another user
-            existing_phone_user = User.query.filter(
-                User.phone == phone_input,
-                User.id != user_id
-            ).first()
-            if existing_phone_user:
-                return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+                 errors['phone'] = "Phone number must contain only digits."
+            elif all(c == '0' for c in phone_input):
+                 errors['phone'] = "Phone number cannot be all zeros."
+            elif len(phone_input) < 10 or len(phone_input) > 15:
+                 errors['phone'] = "Phone number must be between 10 and 15 digits."
+            else:
+                existing_phone_user = User.query.filter(User.phone == phone_input, User.id != user_id).first()
+                if existing_phone_user:
+                    errors['phone'] = "This phone number is already in use."
 
-        # Validate age if provided
+        # 5. Age Validation
         if age_input:
             try:
-                age_value = int(age_input)
-                if age_value < 18 or age_value > 80:
-                    flash("Please enter a valid age between 18 and 80.", "error")
-                    return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+                age_val = int(age_input)
+                if age_val < 18 or age_val > 80:
+                    errors['age'] = "Age must be between 18 and 80."
             except ValueError:
-                flash("Please enter a valid age.", "error")
-                return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+                errors['age'] = "Invalid age."
 
-        # Validate About Me word count if provided
+        # 6. About Me Validation
         if about_me_input:
-            word_count = count_words(about_me_input)
+            length_check = len(about_me_input)
+            if length_check > 2000:
+                 errors['about_me'] = "About Me cannot exceed 2000 characters."
+            
+            word_count = len(about_me_input.split())
             if word_count > 200:
-                flash(f"About Me section cannot exceed 200 words. Current count: {word_count} words.", "error")
-                return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
-            if len(about_me_input) > 2000:
-                flash("About Me section cannot exceed 2000 characters.", "error")
-                return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+                 errors['about_me'] = f"About Me cannot exceed 200 words. (Current: {word_count})"
 
-        # Validate college name length if provided
-        if manual_college:
-            if len(manual_college) > 200:
-                flash("College name cannot exceed 200 characters.", "error")
-                return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+        # 7. College Name Validation
+        if manual_college and len(manual_college) > 200:
+            errors['college_name'] = "College name cannot exceed 200 characters."
 
-        # Validate profile picture URL if provided
+        # 8. Profile Picture URL
         if profile_pic_url:
             if not is_valid_url(profile_pic_url):
-                flash("Please enter a valid URL for the profile picture.", "error")
-                return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
-            # Check if URL is reachable (optional - can be slow)
-            # Uncomment if you want to verify URL accessibility
-            # if not url_seems_reachable(profile_pic_url):
-            #     flash("The profile picture URL appears to be unreachable. Please check the URL.", "warning")
+                 errors['profile_pic_url'] = "Please enter a valid URL."
 
-        # Handle college name and coupon code
-        # Only process new coupon codes if user doesn't already have one
+        # 9. Coupon validation
         if coupon_code and not user_coupon:
             coupon = Coupon.query.filter_by(code=coupon_code).first()
             if not coupon:
-                flash("Invalid coupon code provided.", "error")
-                return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+                errors['coupon_code'] = "Invalid coupon code provided."
             else:
-                # Check if coupon is expired (created more than 2 years ago)
-                current_date = datetime.now()
-                coupon_creation_date = coupon.created_at
-                expiration_threshold = current_date - timedelta(days=730)  # 2 years = 730 days
-                if coupon_creation_date < expiration_threshold:
-                    flash("Coupon has expired. This coupon is more than 2 years old.", "error")
-                    return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
-                # Valid and non-expired coupon
-                existing_mapping = Couponuser.query.filter_by(user_id=user_id, coupon_id=coupon.id).first()
-                if not existing_mapping:
-                    new_mapping = Couponuser(user_id=user_id, coupon_id=coupon.id)
-                    db.session.add(new_mapping)
-                    # Set college name from coupon if available
-                    if coupon.college:
-                        users.college_name = coupon.college.college_name
-                    else:
-                        users.college_name = manual_college or users.college_name
-                    flash("Coupon code applied successfully!", "success")
-                # Reload user_coupon after adding mapping
-                user_coupon_mapping = Couponuser.query.filter_by(user_id=user_id).first()
-                if user_coupon_mapping:
-                    user_coupon = Coupon.query.filter_by(id=user_coupon_mapping.coupon_id).first()
-        elif user_coupon:
-            # User already has a coupon, don't allow changes to coupon-controlled fields
-            if user_coupon.college:
-                users.college_name = user_coupon.college.college_name
-            else:
-                users.college_name = manual_college or users.college_name
-        else:
-            # No coupon code provided and user doesn't have one, use manual college
-            users.college_name = manual_college or users.college_name
+                cutoff = datetime.now() - timedelta(days=730)
+                if coupon.created_at < cutoff:
+                    errors['coupon_code'] = "Coupon has expired."
+                
+                # Apply coupon (only if no errors so far prevents partial state)
+                if not errors:
+                    existing_map = Couponuser.query.filter_by(user_id=user_id, coupon_id=coupon.id).first()
+                    if not existing_map:
+                        new_map = Couponuser(user_id=user_id, coupon_id=coupon.id)
+                        db.session.add(new_map)
+                        if coupon.college:
+                            user.college_name = coupon.college.college_name
+                        flash("Coupon code applied successfully!", "success")
+                        # Refresh coupon info
+                        user_coupon = coupon
 
-        # Update user fields
-        users.name = name_input
-        users.email = email_input
-        users.phone = phone_input if phone_input else None
-        if age_input:
-            try:
-                users.age = int(age_input)
-            except ValueError:
-                pass  # Already validated above
-        users.about_me = about_me_input if about_me_input else None
-        # Profile picture URL update - clear if empty
-        users.profile_picture = profile_pic_url if profile_pic_url else None
+        if errors:
+            return render_template('/user/profile.html', user=user, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values, errors=errors)
+
+        # Update User fields if no errors
+        user.name = name_input
+        user.email = email_input
+        user.phone = phone_input if phone_input else None
+        user.age = int(age_input) if age_input else None
+        user.about_me = about_me_input if about_me_input else None
+        user.profile_picture = profile_pic_url if profile_pic_url else None
 
         try:
             db.session.commit()
@@ -867,36 +965,11 @@ def profile():
         except Exception as e:
             db.session.rollback()
             flash(f"Error updating profile: {str(e)}", "error")
-            return render_template('/user/profile.html', users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values)
+            return render_template('/user/profile.html', user=user, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values, errors=errors)
 
-    return render_template('/user/profile.html', user=user,users=users, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=edit_mode, form_values=form_values)
+    return render_template('/user/profile.html', user=user, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=edit_mode, form_values=form_values, errors=errors)
 from flask import jsonify
 
-@user_blueprint.route('/get_application_details/<uuid:application_id>', methods=['GET'])
-@no_cache
-@login_required
-def get_application_details(application_id):
-    application = JobApplication.query.get(application_id)
-    
-    if not application:
-        return jsonify({"error": "Application not found"}), 404
-
-    print("Debug - Application Found:", application)  # ✅ Debugging Output
-    print("Debug - Date Applied:", application.date_applied)
-    print("Debug - Status Updated:", application.status_updated_at)
-
-    application_data = {
-        "jobTitle": application.job.title,
-        "company": application.job.company_name,
-        "status": application.status,
-        "resumePath": application.resume_path if application.resume_path else None,
-        "dateApplied": application.date_applied.strftime('%Y-%m-%d %H:%M:%S') if application.date_applied else None,
-        "dateStatusChanged": application.status_updated_at.strftime('%Y-%m-%d %H:%M:%S') if application.status_updated_at else None
-    }
-
-    print("Debug - JSON Response:", application_data)  # ✅ Debugging Output
-
-    return jsonify(application_data)
 # Job Details Route - Add this new route
 # Job Details Route - Add this new route
 @user_blueprint.route('/job_details/<uuid:job_id>')
@@ -1068,7 +1141,11 @@ def job_search():
 
         # Apply deadline filter if provided (jobs expiring on or before specified date)
         if deadline:
-            query = query.filter(Job.deadline <= deadline)
+            # Search for jobs expiring *on or before* the deadline date.
+            # To include jobs expiring at any time on the deadline date (e.g. 11:59PM),
+            # we check if job.deadline is LESS than the *next* day at 00:00:00.
+            next_day = deadline + timedelta(days=1)
+            query = query.filter(Job.deadline < next_day)
 
         if skills:
             skills_list = [skill.strip() for skill in skills.split(',') if skill.strip()]
@@ -1107,15 +1184,18 @@ def job_search():
             'deadline': deadline_str if deadline_str else ''
         }
 
+        # Passing current_date for calendar constraints
         return render_template('/user/jobresults.html',
                                user=user,
                                jobs=jobs,
                                applied_jobs=applied_jobs,
                                saved_jobs=saved_jobs,
                                pagination=jobs_pagination,
-                               search_params=search_params)
+                               search_params=search_params,
+                               current_date=current_date)
     else:
-        return render_template('/user/jobsearch.html', user=user,form_values=form_values)
+        # Passing current_date for calendar constraints
+        return render_template('/user/jobsearch.html', user=user, form_values=form_values, current_date=date.today())
 # Updated Save Job Route
 @user_blueprint.route('/save_job1/<uuid:job_id>', methods=['POST'])
 @no_cache
@@ -1138,11 +1218,7 @@ def save_job1(job_id):
     existing_favorite = Favorite.query.filter_by(user_id=user.id, job_id=job_id).first()
     if existing_favorite:
         flash("Job already saved", "info")
-        # Redirect based on source page
-        if source_page == 'job_details':
-            return redirect(url_for('user.job_details', job_id=job_id))
-        else:
-            return redirect(request.referrer or url_for('user.job_search'))
+        return redirect(request.referrer or url_for('user.job_search'))
    
     # Create new favorite entry
     new_favorite = Favorite(user_id=user.id, job_id=job_id)
@@ -1150,11 +1226,7 @@ def save_job1(job_id):
     db.session.commit()
    
     flash("Job saved to favorites", "success")
-    # Redirect based on source page
-    if source_page == 'job_details':
-        return redirect(url_for('user.job_details', job_id=job_id))
-    else:
-        return redirect(request.referrer or url_for('user.job_search'))
+    return redirect(request.referrer or url_for('user.job_search'))
 
 
 # Updated Apply for Job Route
@@ -1175,14 +1247,10 @@ def apply1_for_job(job_id):
     job = Job.query.get(job_id)
     if not job:
         flash("Job not found.", 'error')
-        # Redirect based on source page
-        if source_page == 'job_details':
-            return redirect(url_for('user.job_search'))  # Can't show details if job doesn't exist
-        else:
-            return redirect(request.referrer or url_for('user.job_search'))
+        return redirect(request.referrer or url_for('user.job_search'))
    
     # Fetch the user's resume from the ResumeCertification table
-    resume_certification = ResumeCertification.query.filter_by(user_id=user.id).first()
+    resume_certification = ResumeCertification.query.filter_by(user_id=user.id).order_by(ResumeCertification.uploaded_at.desc()).first()
    
     if not resume_certification or not resume_certification.resume_path:
         flash("You must upload a resume to apply for a job.", 'error')
@@ -1194,11 +1262,7 @@ def apply1_for_job(job_id):
     existing_application = JobApplication.query.filter_by(user_id=user.id, job_id=job_id).first()
     if existing_application:
         flash(f"You have already applied for the job {job.title}.", 'danger')
-        # Redirect based on source page
-        if source_page == 'job_details':
-            return redirect(url_for('user.job_details', job_id=job_id))
-        else:
-            return redirect(request.referrer or url_for('user.job_search'))
+        return redirect(request.referrer or url_for('user.job_search'))
     
     # ✅ Ensure date_applied and status_updated_at are set properly
     new_application = JobApplication(
@@ -1222,11 +1286,7 @@ def apply1_for_job(job_id):
     db.session.commit()
     
     flash(f"Application for {job.title} submitted successfully!", 'success')
-    # Redirect based on source page
-    if source_page == 'job_details':
-        return redirect(url_for('user.job_details', job_id=job_id))
-    else:
-        return redirect(request.referrer or url_for('user.job_search'))
+    return redirect(request.referrer or url_for('user.job_search'))
 @user_blueprint.route('/save_job/<uuid:job_id>', methods=['POST'])
 @no_cache
 @login_required
@@ -1245,7 +1305,7 @@ def save_job(job_id):
     existing_favorite = Favorite.query.filter_by(user_id=user.id, job_id=job_id).first()
     if existing_favorite:
         flash("Job already saved", "info")
-        return redirect(url_for('user.user_dashboard'))
+        return redirect(request.referrer or url_for('user.user_dashboard'))
     
     # Create new favorite entry
     new_favorite = Favorite(user_id=user.id, job_id=job_id)
@@ -1253,7 +1313,7 @@ def save_job(job_id):
     db.session.commit()
     
     flash("Job saved to favorites", "success")
-    return redirect(url_for('user.user_dashboard'))
+    return redirect(request.referrer or url_for('user.user_dashboard'))
 
 from flask import request
 from sqlalchemy import or_

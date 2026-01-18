@@ -488,22 +488,22 @@
       let footerButtons = '';
       
       if (job.has_applied) {
-        footerButtons += `<button type="button" class="btn-applied" disabled><i class="fas fa-check"></i> Applied</button>`;
+        footerButtons += `<div style="flex: 1;"><button type="button" class="btn-applied" disabled><i class="fas fa-check"></i> Applied</button></div>`;
       } else {
         footerButtons += `
-          <form action="/user/apply1_for_job/${jobId}" method="POST" style="display: inline;">
+          <form action="/user/apply1_for_job/${jobId}" method="POST">
             <input type="hidden" name="source_page" value="job_details">
-            <button type="submit" class="btn-custom"><i class="fas fa-paper-plane"></i> Apply</button>
+            <button type="submit" class="btn-custom w-100"><i class="fas fa-paper-plane"></i> Apply</button>
           </form>`;
       }
 
       if (job.has_saved) {
-        footerButtons += `<button type="button" class="btn-saved" disabled><i class="fas fa-heart"></i> Saved</button>`;
+        footerButtons += `<div style="flex: 1;"><button type="button" class="btn-saved" disabled><i class="fas fa-heart"></i> Saved</button></div>`;
       } else {
         footerButtons += `
-          <form action="/user/save_job1/${jobId}" method="POST" style="display: inline;">
+          <form action="/user/save_job1/${jobId}" method="POST">
             <input type="hidden" name="source_page" value="job_details">
-            <button type="submit" class="btn-save"><i class="fas fa-save"></i> Save</button>
+            <button type="submit" class="btn-save w-100"><i class="fas fa-save"></i> Save</button>
           </form>`;
       }
 

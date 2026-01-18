@@ -161,6 +161,26 @@ class Job(db.Model):
         if job_id is not None:
             self.job_id = job_id
 
+    def to_dict(self):
+        return {
+            'job_id': str(self.job_id),
+            'title': self.title,
+            'description': self.description,
+            'job_type': self.job_type,
+            'skills': self.skills,
+            'years_of_exp': self.years_of_exp,
+            'certifications': self.certifications,
+            'location': self.location,
+            'salary': self.salary,
+            'total_vacancy': self.total_vacancy,
+            'filled_vacancy': self.filled_vacancy,
+            'status': self.status,
+            'form_url': self.form_url,
+            'deadline': self.deadline.strftime('%Y-%m-%d %H:%M:%S') if self.deadline else None,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+            'created_by': str(self.created_by)
+        }
+
 
 # Job Application Table
 class JobApplication(db.Model):

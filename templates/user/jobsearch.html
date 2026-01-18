@@ -129,7 +129,7 @@
                
                 <div class="col-md-6 mb-3">
                   <label for="deadline" class="form-label"><i class="fas fa-calendar-alt"></i> Deadline</label>
-                  <input type="date" class="form-control" id="deadline" name="deadline" value="{{ form_values.deadline if form_values else '' }}">
+                  <input type="date" class="form-control" id="deadline" name="deadline" value="{{ form_values.deadline if form_values else '' }}" min="{{ current_date }}">
                   <div class="form-text">Find jobs with deadline on or before this date</div>
                 </div>
               </div>

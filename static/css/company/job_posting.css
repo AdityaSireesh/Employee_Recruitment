@@ -621,3 +621,225 @@ job-details p {
         gap: 5px;
     }
 }
+
+/* Modal Styles */
+.modal {
+    display: none; 
+    position: fixed; 
+    z-index: 1000; 
+    left: 0;
+    top: 0;
+    width: 100%; 
+    height: 100%; 
+    overflow: hidden; 
+    background-color: rgba(0, 0, 0, 0.6); 
+    backdrop-filter: blur(8px);
+}
+
+.modal-content {
+    background-color: #ffffff;
+    margin: 3% auto; 
+    padding: 0;
+    border: none;
+    width: 90%; 
+    max-width: 800px;
+    max-height: 90vh;
+    border-radius: 20px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+    position: relative;
+    animation: modalSlideIn 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+    display: flex;
+    flex-direction: column;
+}
+
+@keyframes modalSlideIn {
+    from { transform: translateY(30px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.modal-header {
+    padding: 25px 35px;
+    background: linear-gradient(135deg, #005f73, #0a9396);
+    color: white;
+    border-radius: 20px 20px 0 0;
+    position: relative;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.close-modal {
+    position: absolute;
+    top: 20px;
+    right: 25px;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 28px;
+    font-weight: 300;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.close-modal:hover {
+    color: white;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.modal-scroll-area {
+    padding: 35px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.modal-meta {
+    margin-bottom: 30px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+}
+
+.modal-badge {
+    padding: 6px 14px;
+    border-radius: 30px;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.modal-badge i {
+    font-size: 14px;
+}
+
+.badge-status-open { background-color: #e0f2f1; color: #00796b; }
+.badge-status-closed { background-color: #ffebee; color: #c62828; }
+.badge-date { background-color: #f3f4f6; color: #4b5563; }
+
+.modal-section {
+    margin-bottom: 35px;
+}
+
+.modal-section h3 {
+    color: #1f2937;
+    margin-bottom: 12px;
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.modal-section h3::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background-color: #e5e7eb;
+}
+
+.modal-description {
+    line-height: 1.6;
+    color: #4b5563;
+    font-size: 15px;
+    white-space: pre-wrap;
+    background-color: #f9fafb;
+    padding: 20px;
+    border-radius: 12px;
+}
+
+.modal-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.modal-item {
+    display: flex;
+    gap: 15px;
+    padding: 16px;
+    background: #ffffff;
+    border: 1px solid #f3f4f6;
+    border-radius: 12px;
+    transition: border-color 0.2s ease;
+}
+
+.modal-item:hover {
+    border-color: #0a9396;
+}
+
+.modal-item-icon {
+    width: 44px;
+    height: 44px;
+    background-color: #f0fdfa;
+    color: #0d9488;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.modal-item-info {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.modal-item-info strong {
+    display: block;
+    color: #6b7280;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+
+.modal-item-info p {
+    margin: 0;
+    font-weight: 600;
+    color: #111827;
+    font-size: 15px;
+}
+
+@media (max-width: 768px) {
+    .modal-content {
+        width: 95%;
+        margin: 5% auto;
+    }
+    
+    .modal-scroll-area {
+        padding: 25px;
+    }
+    
+    .modal-header {
+        padding: 20px 25px;
+    }
+}
+
+/* Edit Button Styles */
+.edit-job-btn {
+    background: none;
+    border: none;
+    color: #6c757d;
+    cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 5px;
+    transition: all 0.2s;
+    margin-left: 10px;
+}
+
+.edit-job-btn:hover {
+    background-color: #e9ecef;
+    color: #005f73;
+}

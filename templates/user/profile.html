@@ -89,7 +89,6 @@
     {% endif %}
     {% endwith %}
   </div>
-
   <!-- Header -->
   <header>
     <div class="menu-toggle">
@@ -169,35 +168,35 @@
             <!-- Name Field -->
             <div class="editable-field">
               <label><p style="color: red; display: inline;">* </p>Name</label>
-              <input type="text" name="name" id="nameField" value="{{ form_values.name if form_values else user.name }}" required maxlength="100">
-              <div class="invalid-feedback" id="nameError"></div>
+              <input type="text" name="name" id="nameField" value="{{ form_values.name if form_values else user.name }}" required maxlength="100" class="{% if errors and errors.name %}is-invalid{% endif %}">
+              <div class="invalid-feedback" id="nameError" style="display: {% if errors and errors.name %}block{% else %}none{% endif %};">{{ errors.name if errors else '' }}</div>
             </div>
            
             <!-- Email Field -->
             <div class="editable-field">
               <label><p style="color: red; display: inline;">* </p>Email</label>
-              <input type="email" name="email" id="emailField" value="{{ form_values.email if form_values else user.email }}" required maxlength="255">
-              <div class="invalid-feedback" id="emailError"></div>
+              <input type="email" name="email" id="emailField" value="{{ form_values.email if form_values else user.email }}" required maxlength="255" class="{% if errors and errors.email %}is-invalid{% endif %}">
+              <div class="invalid-feedback" id="emailError" style="display: {% if errors and errors.email %}block{% else %}none{% endif %};">{{ errors.email if errors else '' }}</div>
             </div>
            
             <div class="editable-field">
               <label>Phone</label>
-              <input type="text" name="phone" id="phoneField" value="{{ form_values.phone if form_values else (user.phone or '') }}" maxlength="15">
-              
+              <input type="text" name="phone" id="phoneField" value="{{ form_values.phone if form_values else (user.phone or '') }}" maxlength="15" class="{% if errors and errors.phone %}is-invalid{% endif %}">
+              <div class="invalid-feedback" id="phoneError" style="display: {% if errors and errors.phone %}block{% else %}none{% endif %};">{{ errors.phone if errors else '' }}</div>
             </div>
            
             <div class="editable-field">
               <label>Age</label>
-              <input type="number" name="age" id="ageField" value="{{ form_values.age if form_values else (user.age or '') }}" min="18" max="80">
-              <div class="invalid-feedback" id="ageError"></div>
+              <input type="number" name="age" id="ageField" value="{{ form_values.age if form_values else (user.age or '') }}" min="18" max="80" class="{% if errors and errors.age %}is-invalid{% endif %}">
+              <div class="invalid-feedback" id="ageError" style="display: {% if errors and errors.age %}block{% else %}none{% endif %};">{{ errors.age if errors else '' }}</div>
             </div>
            
             <!-- Coupon Code Field - Show only if user doesn't have a coupon -->
             {% if not user_coupon %}
               <div class="editable-field">
                 <label>Coupon Code</label>
-                <input type="text" name="coupon_code" id="couponField" value="{{ form_values.coupon_code if form_values else '' }}" placeholder="Enter coupon code" maxlength="50">
-                <div class="invalid-feedback" id="couponError"></div>
+                <input type="text" name="coupon_code" id="couponField" value="{{ form_values.coupon_code if form_values else '' }}" placeholder="Enter coupon code" maxlength="50" class="{% if errors and errors.coupon_code %}is-invalid{% endif %}">
+                <div class="invalid-feedback" id="couponError" style="display: {% if errors and errors.coupon_code %}block{% else %}none{% endif %};">{{ errors.coupon_code if errors else '' }}</div>
               </div>
             {% else %}
               <!-- Show frozen coupon code field if user has a coupon -->
@@ -238,22 +237,23 @@
                        id="collegeField"
                        value="{{ form_values.college_name if form_values else (user.college_name or '') }}"
                        placeholder="Enter college name"
-                       maxlength="200">
-                <div class="invalid-feedback" id="collegeError"></div>
+                       maxlength="200"
+                       class="{% if errors and errors.college_name %}is-invalid{% endif %}">
+                <div class="invalid-feedback" id="collegeError" style="display: {% if errors and errors.college_name %}block{% else %}none{% endif %};">{{ errors.college_name if errors else '' }}</div>
               {% endif %}
             </div>
            
             <div class="editable-field">
               <label>About Me <span id="wordCount">(0/200 words)</span></label>
-              <textarea name="about_me" id="aboutMeField" rows="5" maxlength="2000">{{ form_values.about_me if form_values else (user.about_me or '') }}</textarea>
-              <div class="invalid-feedback" id="aboutMeError"></div>
+              <textarea name="about_me" id="aboutMeField" rows="5" maxlength="2000" class="{% if errors and errors.about_me %}is-invalid{% endif %}">{{ form_values.about_me if form_values else (user.about_me or '') }}</textarea>
+              <div class="invalid-feedback" id="aboutMeError" style="display: {% if errors and errors.about_me %}block{% else %}none{% endif %};">{{ errors.about_me if errors else '' }}</div>
             </div>
            
             <!-- New field for Profile Picture URL -->
             <div class="editable-field">
               <label>Profile Picture URL</label>
-              <input type="url" name="profile_pic_url" id="profilePicUrlField" value="{{ form_values.profile_pic_url if form_values else (user.profile_picture or '') }}" placeholder="Enter image URL" maxlength="2000">
-              <div class="invalid-feedback" id="profilePicError"></div>
+              <input type="url" name="profile_pic_url" id="profilePicUrlField" value="{{ form_values.profile_pic_url if form_values else (user.profile_picture or '') }}" placeholder="Enter image URL" maxlength="2000" class="{% if errors and errors.profile_pic_url %}is-invalid{% endif %}">
+              <div class="invalid-feedback" id="profilePicError" style="display: {% if errors and errors.profile_pic_url %}block{% else %}none{% endif %};">{{ errors.profile_pic_url if errors else '' }}</div>
             </div>
            
             <div class="mt-4 flex items-center gap-4">
@@ -437,19 +437,19 @@
       const name = nameField.value.trim();
       if (!name) {
         showFieldError('nameField', 'nameError', 'Name is required');
-        showPopup("Name is required!", "error");
+        
         hasError = true;
       } else if (name.length < 2) {
         showFieldError('nameField', 'nameError', 'Name must be at least 2 characters long');
-        showPopup("Name must be at least 2 characters long!", "error");
+        
         hasError = true;
       } else if (name.length > 100) {
         showFieldError('nameField', 'nameError', 'Name cannot exceed 100 characters');
-        showPopup("Name cannot exceed 100 characters!", "error");
+
         hasError = true;
       } else if (name.includes('<') || name.includes('>')) {
         showFieldError('nameField', 'nameError', 'Invalid characters (< or >) not allowed in Name field');
-        showPopup("Invalid characters (< or >) not allowed in Name field!", "error");
+        
         hasError = true;
       }
      
@@ -458,15 +458,15 @@
       if (!hasError) {
         if (!email) {
           showFieldError('emailField', 'emailError', 'Email is required');
-          showPopup("Email is required!", "error");
+          
           hasError = true;
         } else if (!isValidEmail(email)) {
           showFieldError('emailField', 'emailError', 'Please enter a valid email address (name@domain.com)');
-          showPopup("Please enter a valid email address!", "error");
+          
           hasError = true;
         } else if (email.includes('<') || email.includes('>')) {
           showFieldError('emailField', 'emailError', 'Invalid characters (< or >) not allowed in Email field');
-          showPopup("Invalid characters (< or >) not allowed in Email field!", "error");
+          
           hasError = true;
         }
       }
@@ -477,15 +477,15 @@
         // Check if phone contains only digits
         if (!/^\d+$/.test(phone)) {
           showFieldError('phoneField', 'phoneError', 'Phone number must contain only digits (0-9)');
-          showPopup("Phone number must contain only digits (0-9)!", "error");
+          
           hasError = true;
         } else if (phone.length < 10 || phone.length > 15) {
           showFieldError('phoneField', 'phoneError', 'Phone number must be between 10-15 digits');
-          showPopup("Phone number must be between 10-15 digits!", "error");
+          
           hasError = true;
         } else if (phone.includes('<') || phone.includes('>')) {
           showFieldError('phoneField', 'phoneError', 'Invalid characters (< or >) not allowed in Phone field');
-          showPopup("Invalid characters (< or >) not allowed in Phone field!", "error");
+          
           hasError = true;
         }
       }
@@ -496,7 +496,7 @@
         const ageValue = parseInt(age);
         if (isNaN(ageValue) || ageValue < 18 || ageValue > 80) {
           showFieldError('ageField', 'ageError', 'Please enter a valid age between 18 and 80');
-          showPopup("Please enter a valid age between 18 and 80!", "error");
+          
           hasError = true;
         }
       }
@@ -506,11 +506,11 @@
         const college = collegeField.value.trim();
         if (college.length > 200) {
           showFieldError('collegeField', 'collegeError', 'College name cannot exceed 200 characters');
-          showPopup("College name cannot exceed 200 characters!", "error");
+         
           hasError = true;
         } else if (college && (college.includes('<') || college.includes('>'))) {
           showFieldError('collegeField', 'collegeError', 'Invalid characters (< or >) not allowed in College Name field');
-          showPopup("Invalid characters (< or >) not allowed in College Name field!", "error");
+          
           hasError = true;
         }
       }
@@ -521,11 +521,11 @@
         const coupon = couponField.value.trim();
         if (coupon.length > 50) {
           showFieldError('couponField', 'couponError', 'Coupon code cannot exceed 50 characters');
-          showPopup("Coupon code cannot exceed 50 characters!", "error");
+          
           hasError = true;
         } else if (coupon.includes('<') || coupon.includes('>')) {
           showFieldError('couponField', 'couponError', 'Invalid characters (< or >) not allowed in Coupon Code field');
-          showPopup("Invalid characters (< or >) not allowed in Coupon Code field!", "error");
+          
           hasError = true;
         }
       }
@@ -536,17 +536,16 @@
         // Check for invalid characters
         if (aboutMe.includes('<') || aboutMe.includes('>')) {
           showFieldError('aboutMeField', 'aboutMeError', 'Invalid characters (< or >) not allowed in About Me section');
-          showPopup("Invalid characters (< or >) not allowed in About Me section!", "error");
+          
           hasError = true;
         } else {
           const wordCount = countWords(aboutMe);
           if (wordCount > 200) {
             showFieldError('aboutMeField', 'aboutMeError', `About Me section cannot exceed 200 words. Current count: ${wordCount} words`);
-            showPopup(`About Me section cannot exceed 200 words. Current count: ${wordCount} words!`, "error");
-            hasError = true;
+            
           } else if (aboutMe.length > 2000) {
             showFieldError('aboutMeField', 'aboutMeError', 'About Me section cannot exceed 2000 characters');
-            showPopup("About Me section cannot exceed 2000 characters!", "error");
+           
             hasError = true;
           }
         }

@@ -248,7 +248,10 @@
             <h3 class="text-xl font-semibold text-gray-800 mb-3">Uploaded Resumes:</h3>
             <div class="certifications-container">
               {% for resume_cert in resume_certifications %}
-                <div class="file-item certification-item">
+                <div class="file-item certification-item {% if loop.first %}most-recent-resume{% endif %}">
+                  {% if loop.first %}
+                  <div class="most-recent-badge">Most Recent</div>
+                  {% endif %}
                   <div class="flex justify-between items-center flex-wrap gap-2">
                     <div>
                       <i class="fas fa-file-pdf text-red-500 mr-2"></i>

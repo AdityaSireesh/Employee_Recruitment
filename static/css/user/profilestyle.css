@@ -200,7 +200,10 @@ main {
   border-radius: 50%;
   border: 4px solid #005f73;
   object-fit: cover;
-  transition: transform 0.3s ease;
+  object-position: center;
+  background-color: #e0e0e0; /* Fallback color */
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 .profile-picture:hover { transform: scale(1.05); }
 .update-overlay {
@@ -320,6 +323,37 @@ main {
   background: linear-gradient(90deg, #16a085, #1abc9c);
   transform: scale(1.05);
   color: white;
+}
+
+/* Validation Styles */
+.invalid-feedback {
+  color: #e74c3c;
+  font-size: 0.875rem;
+  margin-top: 5px;
+  display: none;
+}
+.editable-field input.is-invalid, 
+.editable-field textarea.is-invalid {
+  border-color: #e74c3c;
+  background-color: #fff8f8;
+}
+
+/* Ensure flex/grid layout robustness */
+.profile-container { 
+    margin-bottom: 2rem; 
+    width: 100%; /* Force width */
+}
+.grid-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: start; /* Align to top */
+  width: 100%; /* Force width */
+}
+/* Prevent large content from breaking layout */
+.activity {
+    display: flex;
+    flex-direction: column;
 }
 
 /* Main Content Grid */

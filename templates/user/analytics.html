@@ -105,28 +105,34 @@
           </tr>
           {% endfor %}
         </tbody>
+        </tbody>
       </table>
+      <div class="mt-3 text-end">
+        <a href="{{ url_for('user.application_history') }}" class="text-blue-600 hover:text-blue-800 font-medium">
+          View All Activities <i class="fas fa-arrow-right ml-1"></i>
+        </a>
+      </div>
       
-      <!-- Live Feed -->
-      <h3 class="mt-6">Live Feed (Recent Job Postings)</h3>
+      <!-- Consolidated Live Feed -->
+      <h3 class="mt-6">Live Feed (Recent Interactions)</h3>
       <table class="data-table">
         <thead>
           <tr>
-            <th>Job Title</th>
-            <th>Posted At</th>
+            <th>Activity</th>
+            <th>Timestamp</th>
           </tr>
         </thead>
         <tbody>
-          {% for job in live_feed %}
+          {% for item in live_feed %}
           <tr>
-            <td>{{ job.job_title }}</td>
-            <td class="job-posted-time" data-utc-timestamp="{{ job.posted_at.strftime('%Y-%m-%d %H:%M:%S') if job.posted_at else '' }}">
+            <td>{{ item.activity }}</td>
+            <td class="job-posted-time" data-utc-timestamp="{{ item.timestamp.strftime('%Y-%m-%d %H:%M:%S') if item.timestamp else '' }}">
               Loading...
             </td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="2">No job postings available.</td>
+            <td colspan="2">No recent interactions found.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -256,26 +262,22 @@
       }
     });
   
-    // Application Trends Chart (Line Chart) - with local date conversion
+    // Application Trends Chart (Bar Chart) - with local date conversion
     const ctxTrends = document.getElementById('trendsChart').getContext('2d');
     
     // Convert UTC dates to local dates for chart labels
     const localLabels = applicationTrends.labels.map(label => convertUTCDateToLocalDate(label));
     
     const trendsChart = new Chart(ctxTrends, {
-      type: 'line',
+      type: 'bar',
       data: {
         labels: localLabels, // Use converted local labels
         datasets: [{
-          label: 'Applications per Day',
+          label: 'Number of Applications',
           data: applicationTrends.counts,
-          backgroundColor: 'rgba(26, 188, 156, 0.2)',
+          backgroundColor: 'rgba(26, 188, 156, 0.6)',
           borderColor: 'rgba(26, 188, 156, 1)',
-          borderWidth: 2,
-          fill: true,
-          tension: 0.3,
-          pointRadius: 4,
-          pointBackgroundColor: 'rgba(26, 188, 156, 1)'
+          borderWidth: 1
         }]
       },
       options: {
@@ -284,22 +286,21 @@
         plugins: {
           title: {
             display: true,
-            text: 'Application Trends Over Time (Last 5 Days)',
+            text: 'Daily Applications (Last 7 Days)',
             font: { size: 16 }
           },
           legend: {
-            labels: {
-              font: { size: 12 }
-            }
+            display: false
           }
         },
         scales: {
           x: {
-            title: { display: true, text: 'Date (Local Time)', font: { size: 14 } }
+            title: { display: true, text: 'Date', font: { size: 14 } },
+            grid: { display: false }
           },
           y: {
             beginAtZero: true,
-            title: { display: true, text: 'Applications', font: { size: 14 } },
+            title: { display: true, text: 'Number of Applications', font: { size: 14 } },
             ticks: {
               precision: 0
             }

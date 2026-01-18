@@ -63,7 +63,7 @@
                     {% for job in jobs %}
 
                     {% if job.status == 'open' %}
-                    <div class="job-card" onclick="window.location.href='{{ url_for('company.company_post_new_job', job_id=job.job_id) }}'">
+                    <div class="job-card" onclick="openJobModal({{ job | tojson | forceescape }})">
                     {% else %}
                     <div class="job-card closed">
                     {% endif %}
@@ -74,6 +74,9 @@
                             {% else %}
                                 <span class="status filled">Closed</span>
                             {% endif %}
+                            <button class="edit-job-btn" onclick="event.stopPropagation(); window.location.href='{{ url_for('company.company_post_new_job', job_id=job.job_id) }}'" title="Edit Job">
+                                <i class="fas fa-edit"></i>
+                            </button>
                         </div>
                         <p class="truncate" title="{{ job.description }}">{{ job.description }}</p>
                         <ul class="job-details">
@@ -111,7 +114,7 @@
                             {% endif %}
                             
                             {% if job.deadline %}
-                                <li><i class="fas fa-calendar" style="padding-left: 0.15%;"></i> <p style="padding-left: 0.15%;">Apply Before: <span class="job-date" data-utc="{{ job.deadline.strftime('%Y-%m-%d %H:%M:%S') }}"></span></p></li>
+                                <li><i class="fas fa-calendar" style="padding-left: 0.15%;"></i> <p style="padding-left: 0.15%;">Apply Before: <span class="job-date" data-utc="{{ job.deadline }}"></span></p></li>
                             {% endif %}
                             
                             {% if job.form_url %}
@@ -125,7 +128,7 @@
                                 <li><i class="fas fa-users" style="padding-left: 0.1%;"></i><p style="padding-left: 0.15%;">Vacancy: {{ job.total_vacancy }}</p></li>
                             {% endif %}
                             
-                            <li><i class="fas fa-calendar" style="padding-left: 0.1%;"></i> <p style="padding-left: 0.15%;">Posted: <span class="job-date" data-utc="{{ job.created_at.strftime('%Y-%m-%d %H:%M:%S') }}"></span></p></li>
+                            <li><i class="fas fa-calendar" style="padding-left: 0.1%;"></i> <p style="padding-left: 0.15%;">Posted: <span class="job-date" data-utc="{{ job.created_at }}"></span></p></li>
                         </ul>
                         <div class="application-status">
                             <h4>Application Status</h4>
@@ -152,6 +155,21 @@
             </div>
         </div>
     </main>
+
+    <!-- Job Details Modal -->
+    <div id="jobModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Job Details</h2>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div class="modal-scroll-area">
+                <div id="modalBody">
+                    <!-- Content will be populated by JS -->
+                </div>
+            </div>
+        </div>
+    </div>
     <script>
         //Time Zone
         document.addEventListener('DOMContentLoaded', function() {
@@ -395,6 +413,135 @@
             // Initialize pagination on page load
             initPagination();
         });
+
+        // Modal Logic
+        const modal = document.getElementById("jobModal");
+        const span = document.getElementsByClassName("close-modal")[0];
+
+        function openJobModal(job) {
+            const modalTitle = document.getElementById("modalTitle");
+            const modalBody = document.getElementById("modalBody");
+            
+            modalTitle.textContent = job.title;
+            
+            // Format dates
+            const created = new Date(job.created_at).toLocaleDateString();
+            const deadline = job.deadline ? new Date(job.deadline).toLocaleDateString() : null;
+
+            let content = `
+                <div class="modal-meta">
+                    <span class="modal-badge ${job.status === 'open' ? 'badge-status-open' : 'badge-status-closed'}">
+                        <i class="fas ${job.status === 'open' ? 'fa-check-circle' : 'fa-times-circle'}"></i> 
+                        ${job.status === 'open' ? 'Open' : 'Closed'}
+                    </span>
+                    <span class="modal-badge badge-date">
+                        <i class="fas fa-calendar-alt"></i> Posted: ${created}
+                    </span>
+                    ${deadline ? `
+                    <span class="modal-badge badge-date">
+                        <i class="fas fa-clock"></i> Deadline: ${deadline}
+                    </span>` : ''}
+                </div>
+                
+                <div class="modal-section">
+                    <h3><i class="fas fa-align-left"></i> Description</h3>
+                    <div class="modal-description">${job.description}</div>
+                </div>
+
+                <div class="modal-section">
+                    <h3><i class="fas fa-info-circle"></i> Quick Information</h3>
+                    <div class="modal-grid">
+                        ${job.job_type ? `
+                        <div class="modal-item">
+                            <div class="modal-item-icon"><i class="fas fa-briefcase"></i></div>
+                            <div class="modal-item-info">
+                                <strong>Job Type</strong>
+                                <p>${job.job_type}</p>
+                            </div>
+                        </div>` : ''}
+
+                        ${job.skills ? `
+                        <div class="modal-item">
+                            <div class="modal-item-icon"><i class="fas fa-tools"></i></div>
+                            <div class="modal-item-info">
+                                <strong>Skills Required</strong>
+                                <p>${job.skills}</p>
+                            </div>
+                        </div>` : ''}
+
+                        ${job.years_of_exp !== null ? `
+                        <div class="modal-item">
+                            <div class="modal-item-icon"><i class="fas fa-user-clock"></i></div>
+                            <div class="modal-item-info">
+                                <strong>Experience</strong>
+                                <p>${job.years_of_exp} Years</p>
+                            </div>
+                        </div>` : ''}
+
+                        ${job.location ? `
+                        <div class="modal-item">
+                            <div class="modal-item-icon"><i class="fas fa-map-marker-alt"></i></div>
+                            <div class="modal-item-info">
+                                <strong>Location</strong>
+                                <p>${job.location}</p>
+                            </div>
+                        </div>` : ''}
+
+                        ${job.salary ? `
+                        <div class="modal-item">
+                            <div class="modal-item-icon"><i class="fas fa-wallet"></i></div>
+                            <div class="modal-item-info">
+                                <strong>Salary</strong>
+                                <p>₹${job.salary}</p>
+                            </div>
+                        </div>` : ''}
+
+                        ${job.total_vacancy ? `
+                        <div class="modal-item">
+                            <div class="modal-item-icon"><i class="fas fa-users"></i></div>
+                            <div class="modal-item-info">
+                                <strong>Total Vacancy</strong>
+                                <p>${job.total_vacancy}</p>
+                            </div>
+                        </div>` : ''}
+
+                        ${job.certifications ? `
+                        <div class="modal-item">
+                            <div class="modal-item-icon"><i class="fas fa-award"></i></div>
+                            <div class="modal-item-info">
+                                <strong>Certifications</strong>
+                                <p>${job.certifications}</p>
+                            </div>
+                        </div>` : ''}
+
+                        ${job.form_url ? `
+                        <div class="modal-item">
+                            <div class="modal-item-icon"><i class="fas fa-link"></i></div>
+                            <div class="modal-item-info">
+                                <strong>Questionnaire</strong>
+                                <p><a href="${job.form_url}" target="_blank" style="color: #0d9488; text-decoration: none;">Link <i class="fas fa-external-link-alt" style="font-size: 10px;"></i></a></p>
+                            </div>
+                        </div>` : ''}
+                    </div>
+                </div>
+            `;
+            
+            modalBody.innerHTML = content;
+            modal.style.display = "block";
+            document.body.style.overflow = "hidden"; // Prevent background scrolling
+        }
+
+        span.onclick = function() {
+            modal.style.display = "none";
+            document.body.style.overflow = "auto";
+        }
+
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                modal.style.display = "none";
+                document.body.style.overflow = "auto";
+            }
+        }
     </script>
 </body>
 </html>

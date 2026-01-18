@@ -146,7 +146,8 @@ def company_jobposting():
         return redirect(url_for('auth.login'))  # Ensure only companies can access
     
     # Retrieve all jobs ordered by most recent
-    jobs = Job.query.filter_by(created_by=user_id).order_by(Job.created_at.desc()).all()
+    jobs_list = Job.query.filter_by(created_by=user_id).order_by(Job.created_at.desc()).all()
+    jobs = [job.to_dict() for job in jobs_list]
     profile = Company.query.filter_by(login_id=user_id).first()
 
     return render_template('/company/job_posting.html', jobs=jobs, profile=profile,)
@@ -483,6 +484,10 @@ def company_application_review():
                 if job.filled_vacancy < job.total_vacancy: # Ensure filled_vacancy does not exceed total_vacancy
                     job.filled_vacancy += 1
                     db.session.commit()
+                else:
+                    flash(f'Cannot hire more candidates. Vacancy limit ({job.total_vacancy}) reached for this job.', 'danger')
+                    return redirect(url_for('company.company_application_review'))
+
                 if job.filled_vacancy == job.total_vacancy:
                     job.status = 'closed'
                     db.session.commit()
@@ -501,7 +506,7 @@ def company_application_review():
     jobs = Job.query.filter_by(created_by=user_id).all()
     
     # Query all job applications for the company's jobs
-    query = JobApplication.query.join(Job).filter(Job.created_by == user_id)
+    query = JobApplication.query.join(Job).filter(Job.created_by == user_id).order_by(JobApplication.status_updated_at.desc())
 
     # Apply filters based on dropdown selections
     if selected_status:
@@ -840,8 +845,8 @@ def company_profile():
                 message = "Invalid email format!"
                 message_type = "error"
 
-            elif len(description) > 1000:
-                message = "Description must be under 1000 characters!"
+            if len(description) > 2050:
+                message = "Description must not exceed 2000 characters!"
                 message_type = "error"
 
             elif len(address) > 500:

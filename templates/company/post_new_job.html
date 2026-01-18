@@ -67,8 +67,8 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="description"><p style="color: red; display: inline;">* </p>Job Description:</label>
-                    <textarea id="description" name="description" placeholder="Enter job description" rows="3" style="font-family: monospace;font-size: 14.5px;" required {% if is_closed %}disabled{% endif %} maxlength="2000">{{ form_data.description if form_data else '' }}</textarea>
+                    <label for="description">Job Description:</label>
+                    <textarea id="description" name="description" rows="10" placeholder="Enter job description" {% if is_closed %}disabled{% endif %} maxlength="2000">{{ form_data.description if form_data else '' }}</textarea>
                 </div>
 
                 <div class="form-group">
@@ -127,7 +127,7 @@
 
                 <div class="form-group">
                     <label for="salary">Salary:</label>
-                    <input type="text" id="salary" name="salary" placeholder="Enter expected salary" style="font-family: monospace;font-size: 14.5px;" value="{{ form_data.salary if form_data else '' }}" {% if is_closed %}disabled{% endif %} maxlength="20">
+                    <input type="text" id="salary" name="salary" placeholder="Enter expected salary" style="font-family: monospace;font-size: 14.5px;" value="{{ form_data.salary if form_data else '' }}" {% if is_closed %}disabled{% endif %} maxlength="50">
                 </div>
         
                 <div class="form-group">
@@ -353,8 +353,8 @@
             }
             
             // Validate description
-            if (description.length < 10 || description.length > 2000) {
-                showPopup("Job Description must be between 10-2000 characters!", "error");
+            if (description.length > 2000) {
+                showPopup("Description must not exceed 2000 characters!", "error");
                 return false;
             }
 
@@ -377,7 +377,7 @@
             }
 
             // Validate salary
-            if (salary.length > 20) {
+            if (salary.length > 50) {
                 showPopup("Salary must not exceed 50 characters!", "error");
                 return false;
             }
@@ -432,6 +432,13 @@
             }
             
             clearSessionData();
+            
+            // Disable submit button to prevent double-click
+            const submitBtn = document.querySelector('.submit-btn');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            }
             return true;
         }
         /* Redundant

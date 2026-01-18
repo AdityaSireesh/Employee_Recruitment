@@ -391,32 +391,32 @@ function fetchApplicationDetails(applicationId) {
   document.getElementById('modalCompany').textContent = '';
   document.getElementById('detailsModal').style.display = 'block';
   
-  // Simulate fetch delay
-  setTimeout(() => {
-    // Find the application in the DOM
-    const application = document.querySelector(`.application-item[data-id="${applicationId}"]`);
-    
-    if (application) {
-      const jobTitle = application.querySelector('.job-title').textContent;
-      const company = application.querySelector('.company-name').textContent.trim();
-      const status = application.dataset.status;
+  // Fetch fresh data from the server with cache busting
+  fetch(`/user/api/application_v2/${applicationId}?t=${new Date().getTime()}`)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+      return response.json();
+    })
+    .then(data => {
+      // Update modal content with fresh data
+      document.getElementById('modalJobTitle').textContent = data.job_title;
+      document.getElementById('modalCompany').textContent = data.company_name;
       
-      // Get dates and convert to IST
-      const dateApplied = application.getAttribute('data-date-applied');
-      const statusUpdated = application.getAttribute('data-status-updated');
+      // Convert dates to IST
+      const istDateApplied = convertToIST(data.date_applied);
+      const istStatusUpdated = convertToIST(data.status_updated_at);
       
-      const istDateApplied = convertToIST(dateApplied);
-      const istStatusUpdated = convertToIST(statusUpdated);
-      
-      // Update modal content
-      document.getElementById('modalJobTitle').textContent = jobTitle;
-      document.getElementById('modalCompany').textContent = company;
       document.getElementById('modalDateApplied').textContent = istDateApplied;
       document.getElementById('modalDateStatusChanged').textContent = istStatusUpdated;
       
       // Update status with correct styling
+      const status = data.status.toLowerCase();
       const modalStatus = document.getElementById('modalStatus');
-      modalStatus.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+      modalStatus.textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+      
+      // Reset classes and styles
       modalStatus.className = 'modal-status';
       modalStatus.classList.add(status);
       
@@ -434,12 +434,18 @@ function fetchApplicationDetails(applicationId) {
         modalStatus.style.backgroundColor = 'rgba(245, 158, 11, 0.1)';
         modalStatus.style.color = '#f59e0b';
       }
-    }
-  }, 300);
+    })
+    .catch(error => {
+      console.error('Error fetching application details:', error);
+      document.getElementById('modalJobTitle').textContent = 'Error loading details';
+      document.getElementById('modalCompany').textContent = 'Please try again later';
+    });
 }
 
 function closeDetails() {
   document.getElementById('detailsModal').style.display = 'none';
+  // Reload the page to update the main list with potentially new status
+  window.location.reload();
 }
 
 // Initialize the page
