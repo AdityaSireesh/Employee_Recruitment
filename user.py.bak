@@ -1,43 +1,24 @@
-import os
-import uuid
 from datetime import datetime
-from functools import wraps
-
-from flask import request  # Ensure this is imported at the top
-from flask import (Blueprint, flash, jsonify, make_response, redirect,
-                   render_template, session, url_for)
-from flask_login import current_user, login_required
-from werkzeug.utils import secure_filename
-
+from flask import Blueprint, jsonify, render_template, request, session, redirect, url_for, flash, make_response
+from flask_login import current_user
 from config import Config
+from functools import wraps
+import os
+from werkzeug.utils import secure_filename
+from models import Certification, Company, Coupon, Couponuser, Job, JobApplication, Login,User,ResumeCertification, Notification,Favorite #, JobApplication
+from flask_login import login_required, current_user
+from werkzeug.utils import secure_filename
+import os, uuid
 from models import db  # Ensure 'db' is the instance of SQLAlchemy
-from models import (Certification, Company, Coupon,  # , JobApplication
-                    Couponuser, Favorite, Job, JobApplication, Login,
-                    Notification, ResumeCertification, User)
-from utils import allowed_file  # Assuming your config file is named config.py
-
   # Assuming your model is in 'models.py'
+from config import Config
+from utils import allowed_file  # Assuming your config file is named config.py
+from datetime import datetime
+from flask import request  # Ensure this is imported at the top
+from flask import render_template, session, redirect, url_for, flash
+from flask_login import login_required
 
 user_blueprint = Blueprint('user', __name__)
-import re
-from datetime import (  # Ensure these are imported if not already; Ensure date is imported
-    date, datetime, timedelta)
-from urllib.parse import urlparse
-
-import pytz
-import requests
-from flask import (flash, jsonify, redirect, render_template, request, session,
-                   url_for)
-from sqlalchemy import or_
-
-from models import (Communication,  # make sure db is imported from your app
-                    Job, JobApplication, Notification, ResumeCertification,
-                    User, db)
-from utils_url import url_seems_reachable
-
-# ==============================================================================
-# SETUP & DECORATORS
-# ==============================================================================
 
 def no_cache(f):
     @wraps(f)
@@ -49,7 +30,6 @@ def no_cache(f):
         return resp
     return decorated_function
 
-
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -57,11 +37,6 @@ def login_required(f):
             return redirect(url_for('auth.login'))
         return f(*args, **kwargs)
     return decorated_function
-
-
-# ==============================================================================
-# DASHBOARD & ANALYTICS
-# ==============================================================================
 
 @user_blueprint.route('/user_dashboard')
 @no_cache
@@ -144,7 +119,74 @@ def user_dashboard():
                            total_pages=total_pages,
                            applied_job_ids=applied_job_ids,
                            saved_job_ids=saved_job_ids)
+from datetime import datetime
 
+from models import db, User, Job, JobApplication, ResumeCertification, Notification
+
+@user_blueprint.route('/apply_for_job/<uuid:job_id>', methods=['POST'])
+@no_cache
+@login_required
+def apply_for_job(job_id):
+    user_id = session.get('user_id')
+    user = User.query.get(user_id)  
+
+    if not user:
+        flash("User not found.", 'error')
+        return redirect(url_for('user.user_dashboard'))
+
+    # Fetch the job that the user is applying for
+    job = Job.query.get(job_id)
+
+    if not job:
+        flash("Job not found.", 'error')
+        return redirect(url_for('user.user_dashboard'))
+    
+    if job.status=='closed':
+        flash("Applications have been closed for this job.", 'error')
+        return redirect(url_for('user.user_dashboard'))
+
+    # Fetch the user's resume from the ResumeCertification table
+    resume_certification = ResumeCertification.query.filter_by(user_id=user.id).order_by(ResumeCertification.uploaded_at.desc()).first()
+    
+    if not resume_certification or not resume_certification.resume_path:
+        flash("You must upload a resume to apply for a job.", 'error')
+        return redirect(url_for('user.resume_certifications'))
+
+    print("Debugging: Resume Path:", resume_certification.resume_path)  # ✅ Debugging Output
+
+    # Check if the user has already applied for this job
+    existing_application = JobApplication.query.filter_by(user_id=user.id, job_id=job_id).first()
+    if existing_application:
+        flash(f"You have already applied for the job {job.title}.", 'error')
+        return redirect(url_for('user.user_dashboard'))
+
+    # ✅ Ensure date_applied and status_updated_at are set properly
+    new_application = JobApplication(
+        user_id=user.id,
+        job_id=job.job_id,
+        status='Pending',  
+        resume_path=resume_certification.resume_path,
+        
+    )
+
+    # ✅ Send notification to company
+    message = f"{user.name} has applied for the job: {job.title}"
+    new_notification = Notification(
+        user_id=user.login_id,
+        company_id=job.created_by,
+        message=message
+    )
+
+    # Add and commit changes to the database
+    db.session.add(new_application)
+    db.session.add(new_notification)
+    db.session.commit()
+
+    flash(f"Application for {job.title} submitted successfully!", 'success')
+    return redirect(request.referrer or url_for('user.user_dashboard'))
+
+from datetime import datetime, timedelta
+import pytz
 
 def get_chart_data_for_user(user_id):
     """
@@ -351,7 +393,6 @@ def get_chart_data_for_user(user_id):
     
     return user_success_rate, application_trends, recent_activities_list, live_feed_list
 
-
 @user_blueprint.route('/analytics')
 @no_cache
 @login_required
@@ -381,10 +422,366 @@ def analytics():
         live_feed=live_feed
     )
 
+from flask import session, render_template, flash, redirect, url_for
+from models import Communication, User, db  # make sure db is imported from your app
+@user_blueprint.route('/notifications', methods=['GET'])
+@no_cache
+@login_required
+def notifications():
+    login_id = session.get('login_id')  # Use 'login_id' instead of 'user_id'
+    if not login_id:
+        flash("User not logged in", "error")
+        return redirect(url_for('auth.login'))
+   
+    # Ensure that only regular users access this page
+    if session.get('role') != 'user':
+        return redirect(url_for('auth.login'))
+   
+    # Get the User object using login_id from the Login table
+    user = User.query.filter_by(login_id=login_id).first()
+    if not user:
+        flash("User not found", "error")
+        return redirect(url_for('auth.login'))
+    user_pk = session.get('user_id')
+    if not user_pk:
+        flash("Please log in to view notifications.", "danger")
+        return redirect(url_for('auth.login'))
 
-# ==============================================================================
-# PROFILE MANAGEMENT
-# ==============================================================================
+    # Retrieve the user record to get the user's login_id (which is stored in the Communication table)
+    users = User.query.get(user_pk)
+    if not users:
+        flash("User not found.", "danger")
+        return redirect(url_for('auth.login'))
+
+    # Paginate the notifications query
+    page = request.args.get('page', 1, type=int)
+    per_page = 5  # Changed from unlimited to 5 per page
+
+    # Use the user's login_id for querying communications and filter out hidden ones if needed.
+    notifications_query = Communication.query.filter_by(user_id=users.login_id, hidden=False)\
+        .order_by(Communication.timestamp.desc())
+    
+    notifications_pagination = notifications_query.paginate(page=page, per_page=per_page, error_out=False)
+    notifications = notifications_pagination.items
+    total_pages = notifications_pagination.pages
+    
+    unread_count = Communication.query.filter_by(user_id=users.login_id, read_status=False, hidden=False).count()
+
+    return render_template(
+        '/user/notification.html',
+        user=user,
+        notifications=notifications,
+        unread_count=unread_count,
+        page=page,
+        total_pages=total_pages
+    )
+
+@user_blueprint.route('/mark_notification_read/<uuid:notification_id>', methods=['POST'], endpoint='mark_single_notification_read')
+@no_cache
+@login_required
+def mark_notification_read(notification_id):
+    # Your code for marking a single notification as read...
+
+
+    user_pk = session.get('user_id')
+    if not user_pk:
+        flash("Please log in.", "danger")
+        return redirect(url_for('auth.login'))
+    
+    # Retrieve user record to get the correct login_id
+    user = User.query.get(user_pk)
+    if not user:
+        flash("User not found.", "danger")
+        return redirect(url_for('auth.login'))
+
+    # Retrieve the specific notification and verify ownership using user.login_id
+    notification = Communication.query.filter_by(
+        id=notification_id, 
+        user_id=user.login_id, 
+        hidden=False
+    ).first()
+    
+    if notification:
+        notification.read_status = True
+        db.session.commit()
+        
+    else:
+        flash("Notification not found.", "danger")
+    
+    return redirect(url_for('user.notifications'))
+
+@user_blueprint.route('/delete_notification/<uuid:notification_id>', methods=['POST'])
+@no_cache
+@login_required
+def delete_notification(notification_id):
+    user_pk = session.get('user_id')
+    if not user_pk:
+        flash("Unauthorized access.", "danger")
+        return redirect(url_for('auth.login'))
+    
+    user = User.query.get(user_pk)
+    if not user:
+        flash("User not found.", "danger")
+        return redirect(url_for('auth.login'))
+
+    # Retrieve the specific notification belonging to this user that is not already hidden
+    notification = Communication.query.filter_by(
+        id=notification_id, 
+        user_id=user.login_id, 
+        hidden=False
+    ).first()
+    
+    if notification:
+        notification.hidden = True  # Soft-delete by marking as hidden
+        db.session.commit()
+        flash("Notification removed.", "success")
+    else:
+        flash("Notification not found.", "danger")
+    
+    return redirect(url_for('user.notifications'))
+
+@user_blueprint.route('/resume_certifications', methods=['GET', 'POST'])
+@no_cache
+@login_required
+def resume_certifications():
+    login_id = session.get('login_id')  # Use 'login_id' instead of 'user_id'
+    if not login_id:
+        flash("User not logged in", "error")
+        return redirect(url_for('auth.login'))
+   
+    # Ensure that only regular users access this page
+    if session.get('role') != 'user':
+        return redirect(url_for('auth.login'))
+   
+    # Get the User object using login_id from the Login table
+    user = User.query.filter_by(login_id=login_id).first()
+    if not user:
+        flash("User not found", "error")
+        return redirect(url_for('auth.login'))
+    user_id = session.get('user_id')
+    if not user_id:
+        flash('You need to log in to access this page.', 'error')
+        return redirect(url_for('auth.login'))
+    
+    # Fetch user data
+    users = User.query.get(user_id)
+    print(user_id, users)
+    if not users:
+        flash('User not found.', 'error')
+        return redirect(url_for('auth.login'))
+    
+    if request.method == 'POST':
+        # Check if the form submission is for a resume or a certification
+        if 'resume' in request.files:
+            # Handle Resume Upload
+            upload_folder = os.path.join('static', 'uploads')
+            if not os.path.exists(upload_folder):
+                os.makedirs(upload_folder)
+            resume = request.files.get('resume')
+            # Check for 0-byte file
+            resume.seek(0, os.SEEK_END)
+            file_length = resume.tell()
+            resume.seek(0)  # Reset cursor
+            if file_length == 0:
+                flash("File cannot be empty.", "error")
+                return redirect(url_for('user.resume_certifications'))
+            
+            if resume and allowed_file(resume.filename):
+                resume_filename = secure_filename(resume.filename)
+                resume_path = os.path.join(upload_folder, f"resume_{users.name}_{resume_filename}")
+                resume.save(resume_path)
+                resume_path = resume_path.replace('\\', '/')  # Normalize path for web use
+                
+                # Save Resume Entry
+                resume_entry = ResumeCertification(user_id=users.id, resume_path=resume_path)
+                db.session.add(resume_entry)
+                db.session.commit()
+                flash('Resume uploaded successfully!', 'success')
+                
+        elif 'certification_name' in request.form:
+            # Handle Certification/Skill Additions
+            raw_input = request.form.get('certification_name', '')
+            skill_names = [s.strip() for s in raw_input.split(',') if s.strip()]
+            
+            if skill_names:
+                added_skills = []
+                duplicate_skills = []
+                
+                for skill_name in skill_names:
+                    # Check if certification already exists (case insensitive)
+                    existing_certification = Certification.query.filter(
+                        Certification.user_id == users.id,
+                        db.func.lower(Certification.certification_name) == skill_name.lower()
+                    ).first()
+                    
+                    if existing_certification:
+                        duplicate_skills.append(skill_name)
+                    else:
+                        certification = Certification(
+                            user_id=users.id,
+                            certification_name=skill_name,
+                            verification_status=False
+                        )
+                        db.session.add(certification)
+                        added_skills.append(skill_name)
+                
+                if added_skills:
+                    db.session.commit()
+                    flash(f'Skills added: {", ".join(added_skills)}', 'success')
+                
+                if duplicate_skills:
+                    flash(f'Skills already exist: {", ".join(duplicate_skills)}', 'warning')
+            else:
+                flash('Please enter a skill name.', 'error')
+        
+        return redirect(url_for('user.resume_certifications'))
+    
+    # Retrieve dynamic chart data, recent activities, and live feed using the helper function
+    user_success_rate, applications_overview, recent_activities, live_feed = get_chart_data_for_user(user_id)
+    
+    # Retrieve data for display - Sorted by uploaded_at descending
+    resumes = ResumeCertification.query.filter_by(user_id=user_id).order_by(ResumeCertification.uploaded_at.desc()).all()
+    certifications = Certification.query.filter_by(user_id=user_id).all()
+    
+    return render_template(
+        '/user/resume_certifications.html',
+        user=user,
+        resume_certifications=resumes,
+        certifications=certifications,
+        user_success_rate=user_success_rate,
+        applications_overview=applications_overview,
+        recent_activities=recent_activities,
+        live_feed=live_feed
+    )
+
+@user_blueprint.route('/application_history', methods=['GET'])
+@no_cache
+@login_required
+def application_history():
+    login_id = session.get('login_id')  # Use 'login_id' instead of 'user_id'
+    if not login_id:
+        flash("User not logged in", "error")
+        return redirect(url_for('auth.login'))
+   
+    # Ensure that only regular users access this page
+    if session.get('role') != 'user':
+        return redirect(url_for('auth.login'))
+   
+    # Get the User object using login_id from the Login table
+    user = User.query.filter_by(login_id=login_id).first()
+    if not user:
+        flash("User not found", "error")
+        return redirect(url_for('auth.login'))
+    user_id = session.get('user_id')
+   
+    if not user_id:
+        flash("User is not logged in.", "error")
+        return redirect(url_for('auth.login'))
+    
+    # Fetch all applications for the logged-in user, ordered by date_applied descending (most recent first)
+    applications = JobApplication.query.filter_by(user_id=user_id).order_by(JobApplication.date_applied.desc()).all()
+   
+    # Retrieve chart data, recent activities, and live feed using the common helper function
+    user_success_rate, applications_overview, recent_activities, live_feed = get_chart_data_for_user(user_id)
+    
+    # Render the template with the application data, chart data, recent activities, and live feed
+    return render_template('/user/applicationhistory.html',
+                           user=user,
+        applications=applications,
+        user_success_rate=user_success_rate,
+        applications_overview=applications_overview,
+        recent_activities=recent_activities,
+        live_feed=live_feed
+    )
+
+@user_blueprint.route('/api/application_v2/<uuid:application_id>', methods=['GET'])
+@no_cache
+@login_required
+def get_application_details_api(application_id):
+    """API endpoint to get fresh application details"""
+    try:
+        # Force a session refresh to ensure we get the latest data from DB
+        # This handles cases where the status was updated by another user (Company)
+        db.session.commit()
+        db.session.expire_all()
+        
+        user_pk = session.get('user_id')
+        if not user_pk:
+            return jsonify({'error': 'Unauthorized'}), 401
+
+        # Fetch the application making sure it belongs to the logged-in user
+        application = JobApplication.query.filter_by(id=application_id, user_id=user_pk).first()
+        
+        if not application:
+            return jsonify({'error': 'Application not found'}), 404
+            
+        # Get related data
+        job = Job.query.get(application.job_id)
+        # Using the same join logic as used elsewhere to get company name
+        # Job -> Login (created_by) -> Company
+        company_name = "Unknown Company"
+        if job:
+            creator = Login.query.get(job.created_by)
+            if creator:
+                company_record = Company.query.filter_by(login_id=creator.id).first()
+                if company_record:
+                    company_name = company_record.company_name
+
+        return jsonify({
+            'id': application.id,
+            'job_title': job.title if job else "Unknown Job",
+            'company_name': company_name,
+            'status': application.status,
+            'date_applied': application.date_applied.isoformat() if application.date_applied else None,
+            'status_updated_at': application.status_updated_at.isoformat() if application.status_updated_at else None
+        })
+    except Exception as e:
+        print(f"Error fetching application details: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+import re
+import requests
+from urllib.parse import urlparse
+from datetime import datetime, timedelta  # Ensure these are imported if not already
+
+# ============================================================================
+# HELPER FUNCTIONS FOR USER MODULE
+# ============================================================================
+def sanitize_text(value: str) -> str:
+    """ Sanitize text input to prevent XSS attacks. Removes script tags, javascript: URLs, data: URLs, and event handlers. """
+    if not value:
+        return ''
+    # Remove <script>...</script>
+    value = re.sub(r'<\s*script[^>]*>.*?<\s*/\s*script\s*>', '', value, flags=re.IGNORECASE | re.DOTALL)
+    # Remove javascript: or data: URLs inside attributes or text
+    value = re.sub(r'javascript\s*:', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'data\s*:[^ \t\r\n]*', '', value, flags=re.IGNORECASE)
+    # Remove on* event handlers
+    value = re.sub(r'on\w+\s*=\s*"[^\"]*"', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'on\w+\s*=\s*\'[^\']*\'', '', value, flags=re.IGNORECASE)
+    # Remove < and > characters
+    value = value.replace('<', '').replace('>', '')
+    return value.strip()
+
+from utils_url import url_seems_reachable
+
+def is_valid_url(url: str) -> bool:
+    """ Validate if a string is a properly formatted URL. """
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except:
+        return False
+
+def is_valid_email(email: str) -> bool:
+    """ Validate email format using regex. """
+    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(email_regex, email) is not None
+
+def count_words(text: str) -> int:
+    """ Count words in a text string. """
+    if not text:
+        return 0
+    return len(text.strip().split())
 
 # ============================================================================
 # USER PROFILE ROUTE WITH ENHANCED VALIDATION
@@ -571,228 +968,54 @@ def profile():
             return render_template('/user/profile.html', user=user, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values, errors=errors)
 
     return render_template('/user/profile.html', user=user, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=edit_mode, form_values=form_values, errors=errors)
+from flask import jsonify
 
-
-# ==============================================================================
-# RESUMES & CERTIFICATIONS
-# ==============================================================================
-
-@user_blueprint.route('/resume_certifications', methods=['GET', 'POST'])
+# Job Details Route - Add this new route
+# Job Details Route - Add this new route
+@user_blueprint.route('/job_details/<uuid:job_id>')
 @no_cache
 @login_required
-def resume_certifications():
-    login_id = session.get('login_id')  # Use 'login_id' instead of 'user_id'
+def job_details(job_id):
+    login_id = session.get('login_id')
     if not login_id:
         flash("User not logged in", "error")
         return redirect(url_for('auth.login'))
    
-    # Ensure that only regular users access this page
-    if session.get('role') != 'user':
-        return redirect(url_for('auth.login'))
-   
-    # Get the User object using login_id from the Login table
     user = User.query.filter_by(login_id=login_id).first()
     if not user:
         flash("User not found", "error")
         return redirect(url_for('auth.login'))
-    user_id = session.get('user_id')
-    if not user_id:
-        flash('You need to log in to access this page.', 'error')
-        return redirect(url_for('auth.login'))
     
-    # Fetch user data
-    users = User.query.get(user_id)
-    print(user_id, users)
-    if not users:
-        flash('User not found.', 'error')
-        return redirect(url_for('auth.login'))
+    # Get current date for deadline comparison
+    current_date = datetime.utcnow().date()
     
-    if request.method == 'POST':
-        # Check if the form submission is for a resume or a certification
-        if 'resume' in request.files:
-            # Handle Resume Upload
-            upload_folder = os.path.join('static', 'uploads')
-            if not os.path.exists(upload_folder):
-                os.makedirs(upload_folder)
-            resume = request.files.get('resume')
-            # Check for 0-byte file
-            resume.seek(0, os.SEEK_END)
-            file_length = resume.tell()
-            resume.seek(0)  # Reset cursor
-            if file_length == 0:
-                flash("File cannot be empty.", "error")
-                return redirect(url_for('user.resume_certifications'))
-            
-            if resume and allowed_file(resume.filename):
-                resume_filename = secure_filename(resume.filename)
-                resume_path = os.path.join(upload_folder, f"resume_{users.name}_{resume_filename}")
-                resume.save(resume_path)
-                resume_path = resume_path.replace('\\', '/')  # Normalize path for web use
-                
-                # Save Resume Entry
-                resume_entry = ResumeCertification(user_id=users.id, resume_path=resume_path)
-                db.session.add(resume_entry)
-                db.session.commit()
-                flash('Resume uploaded successfully!', 'success')
-                
-        elif 'certification_name' in request.form:
-            # Handle Certification/Skill Additions
-            raw_input = request.form.get('certification_name', '')
-            skill_names = [s.strip() for s in raw_input.split(',') if s.strip()]
-            
-            if skill_names:
-                added_skills = []
-                duplicate_skills = []
-                
-                for skill_name in skill_names:
-                    # Check if certification already exists (case insensitive)
-                    existing_certification = Certification.query.filter(
-                        Certification.user_id == users.id,
-                        db.func.lower(Certification.certification_name) == skill_name.lower()
-                    ).first()
-                    
-                    if existing_certification:
-                        duplicate_skills.append(skill_name)
-                    else:
-                        certification = Certification(
-                            user_id=users.id,
-                            certification_name=skill_name,
-                            verification_status=False
-                        )
-                        db.session.add(certification)
-                        added_skills.append(skill_name)
-                
-                if added_skills:
-                    db.session.commit()
-                    flash(f'Skills added: {", ".join(added_skills)}', 'success')
-                
-                if duplicate_skills:
-                    flash(f'Skills already exist: {", ".join(duplicate_skills)}', 'warning')
-            else:
-                flash('Please enter a skill name.', 'error')
-        
-        return redirect(url_for('user.resume_certifications'))
+    # Fetch the job with deadline check
+    job = Job.query.join(Company, Job.created_by == Company.login_id).filter(
+        Job.job_id == job_id,
+        Job.status != 'closed',
+        Company.is_banned == False,
+        Job.deadline > current_date  # Only show if deadline hasn't passed
+    ).first()
     
-    # Retrieve dynamic chart data, recent activities, and live feed using the helper function
-    user_success_rate, applications_overview, recent_activities, live_feed = get_chart_data_for_user(user_id)
+    if not job:
+        flash("Job not found or no longer available", "error")
+        return redirect(url_for('user.job_search'))
     
-    # Retrieve data for display - Sorted by uploaded_at descending
-    resumes = ResumeCertification.query.filter_by(user_id=user_id).order_by(ResumeCertification.uploaded_at.desc()).all()
-    certifications = Certification.query.filter_by(user_id=user_id).all()
+    # Get user's applied and saved jobs
+    applied_jobs = {app.job_id for app in JobApplication.query.filter_by(user_id=user.id).all()}
+    saved_jobs = {fav.job_id for fav in Favorite.query.filter_by(user_id=user.id).all()}
     
-    return render_template(
-        '/user/resume_certifications.html',
-        user=user,
-        resume_certifications=resumes,
-        certifications=certifications,
-        user_success_rate=user_success_rate,
-        applications_overview=applications_overview,
-        recent_activities=recent_activities,
-        live_feed=live_feed
-    )
+    return render_template('/user/jobresults.html',
+                           user=user, 
+                         job=job, 
+                         applied_jobs=applied_jobs, 
+                         saved_jobs=saved_jobs)
 
-
-@user_blueprint.route('/delete_resume/<uuid:resume_id>', methods=['POST'])
-@no_cache
-@login_required
-def delete_resume(resume_id):
-    # Check if user is logged in
-    if 'username' not in session:
-        flash('Please log in to access this page.', 'error')
-        return redirect(url_for('auth.login'))
-    
-    try:
-        username = session['username']
-        
-        # Get the login record first
-        login = Login.query.filter_by(username=username).first()
-        if not login:
-            flash('Login not found!', 'error')
-            return redirect(url_for('user.resume_certifications'))
-        
-        # Get the user record using the login_id
-        user = User.query.filter_by(login_id=login.id).first()
-        if not user:
-            flash('User not found!', 'error')
-            return redirect(url_for('user.resume_certifications'))
-        
-        # Find the resume for this specific user
-        resume = ResumeCertification.query.filter_by(
-            id=resume_id, 
-            user_id=user.id
-        ).first()
-        
-        if resume:
-            # Delete the file from filesystem
-            import os
-            if resume.resume_path and os.path.exists(resume.resume_path):
-                os.remove(resume.resume_path)
-            
-            # Delete the record from database
-            db.session.delete(resume)
-            db.session.commit()
-            
-            flash('Resume deleted successfully!', 'success')
-        else:
-            flash('Resume not found or you do not have permission to delete it!', 'error')
-            
-    except Exception as e:
-        print(f"Error deleting resume: {str(e)}")
-        flash('Error deleting resume!', 'error')
-        
-    return redirect(url_for('user.resume_certifications'))
-
-
-@user_blueprint.route('/delete_certification/<uuid:certification_id>', methods=['POST'])
-@no_cache
-@login_required
-def delete_certification(certification_id):
-    # Check if user is logged in
-    if 'username' not in session:
-        flash('Please log in to access this page.', 'error')
-        return redirect(url_for('auth.login'))
-   
-    try:
-        username = session['username']
-       
-        # Get the login record first
-        login = Login.query.filter_by(username=username).first()
-        if not login:
-            flash('Login not found!', 'error')
-            return redirect(url_for('user.resume_certifications'))
-       
-        # Get the user record using the login_id
-        user = User.query.filter_by(login_id=login.id).first()
-        if not user:
-            flash('User not found!', 'error')
-            return redirect(url_for('user.resume_certifications'))
-       
-        # Find the certification for this specific user
-        # Assuming Certification model has user_id field
-        certification = Certification.query.filter_by(
-            id=certification_id,
-            user_id=user.id
-        ).first()
-       
-        if certification:
-            # Delete the certification record from database
-            db.session.delete(certification)
-            db.session.commit()
-           
-            flash('Skill/Certification deleted successfully!', 'success')
-        else:
-            flash('Skill/Certification not found or you do not have permission to delete it!', 'error')
-           
-    except Exception as e:
-        print(f"Error deleting certification: {str(e)}")
-        flash('Error deleting skill/certification!', 'error')
-       
-    return redirect(url_for('user.resume_certifications'))
-
-
-# ==============================================================================
-# JOB SEARCH
-# ==============================================================================
+import re
+import requests
+from urllib.parse import urlparse
+from datetime import datetime, timedelta, date  # Ensure date is imported
+from sqlalchemy import or_
 
 # Assuming sanitize_text is already defined from previous helpers
 
@@ -973,14 +1196,11 @@ def job_search():
     else:
         # Passing current_date for calendar constraints
         return render_template('/user/jobsearch.html', user=user, form_values=form_values, current_date=date.today())
-
-
-# Job Details Route - Add this new route
-# Job Details Route - Add this new route
-@user_blueprint.route('/job_details/<uuid:job_id>')
+# Updated Save Job Route
+@user_blueprint.route('/save_job1/<uuid:job_id>', methods=['POST'])
 @no_cache
 @login_required
-def job_details(job_id):
+def save_job1(job_id):
     login_id = session.get('login_id')
     if not login_id:
         flash("User not logged in", "error")
@@ -990,99 +1210,23 @@ def job_details(job_id):
     if not user:
         flash("User not found", "error")
         return redirect(url_for('auth.login'))
+   
+    # Get the source page to determine redirect behavior
+    source_page = request.form.get('source_page', 'job_search')
     
-    # Get current date for deadline comparison
-    current_date = datetime.utcnow().date()
-    
-    # Fetch the job with deadline check
-    job = Job.query.join(Company, Job.created_by == Company.login_id).filter(
-        Job.job_id == job_id,
-        Job.status != 'closed',
-        Company.is_banned == False,
-        Job.deadline > current_date  # Only show if deadline hasn't passed
-    ).first()
-    
-    if not job:
-        flash("Job not found or no longer available", "error")
-        return redirect(url_for('user.job_search'))
-    
-    # Get user's applied and saved jobs
-    applied_jobs = {app.job_id for app in JobApplication.query.filter_by(user_id=user.id).all()}
-    saved_jobs = {fav.job_id for fav in Favorite.query.filter_by(user_id=user.id).all()}
-    
-    return render_template('/user/jobresults.html',
-                           user=user, 
-                         job=job, 
-                         applied_jobs=applied_jobs, 
-                         saved_jobs=saved_jobs)
-
-
-# ==============================================================================
-# JOB APPLICATIONS
-# ==============================================================================
-
-@user_blueprint.route('/apply_for_job/<uuid:job_id>', methods=['POST'])
-@no_cache
-@login_required
-def apply_for_job(job_id):
-    user_id = session.get('user_id')
-    user = User.query.get(user_id)  
-
-    if not user:
-        flash("User not found.", 'error')
-        return redirect(url_for('user.user_dashboard'))
-
-    # Fetch the job that the user is applying for
-    job = Job.query.get(job_id)
-
-    if not job:
-        flash("Job not found.", 'error')
-        return redirect(url_for('user.user_dashboard'))
-    
-    if job.status=='closed':
-        flash("Applications have been closed for this job.", 'error')
-        return redirect(url_for('user.user_dashboard'))
-
-    # Fetch the user's resume from the ResumeCertification table
-    resume_certification = ResumeCertification.query.filter_by(user_id=user.id).order_by(ResumeCertification.uploaded_at.desc()).first()
-    
-    if not resume_certification or not resume_certification.resume_path:
-        flash("You must upload a resume to apply for a job.", 'error')
-        return redirect(url_for('user.resume_certifications'))
-
-    print("Debugging: Resume Path:", resume_certification.resume_path)  # ✅ Debugging Output
-
-    # Check if the user has already applied for this job
-    existing_application = JobApplication.query.filter_by(user_id=user.id, job_id=job_id).first()
-    if existing_application:
-        flash(f"You have already applied for the job {job.title}.", 'error')
-        return redirect(url_for('user.user_dashboard'))
-
-    # ✅ Ensure date_applied and status_updated_at are set properly
-    new_application = JobApplication(
-        user_id=user.id,
-        job_id=job.job_id,
-        status='Pending',  
-        resume_path=resume_certification.resume_path,
-        
-    )
-
-    # ✅ Send notification to company
-    message = f"{user.name} has applied for the job: {job.title}"
-    new_notification = Notification(
-        user_id=user.login_id,
-        company_id=job.created_by,
-        message=message
-    )
-
-    # Add and commit changes to the database
-    db.session.add(new_application)
-    db.session.add(new_notification)
+    # Check if job is already saved
+    existing_favorite = Favorite.query.filter_by(user_id=user.id, job_id=job_id).first()
+    if existing_favorite:
+        flash("Job already saved", "info")
+        return redirect(request.referrer or url_for('user.job_search'))
+   
+    # Create new favorite entry
+    new_favorite = Favorite(user_id=user.id, job_id=job_id)
+    db.session.add(new_favorite)
     db.session.commit()
-
-    flash(f"Application for {job.title} submitted successfully!", 'success')
-    return redirect(request.referrer or url_for('user.user_dashboard'))
-
+   
+    flash("Job saved to favorites", "success")
+    return redirect(request.referrer or url_for('user.job_search'))
 
 
 # Updated Apply for Job Route
@@ -1143,98 +1287,6 @@ def apply1_for_job(job_id):
     
     flash(f"Application for {job.title} submitted successfully!", 'success')
     return redirect(request.referrer or url_for('user.job_search'))
-
-
-@user_blueprint.route('/application_history', methods=['GET'])
-@no_cache
-@login_required
-def application_history():
-    login_id = session.get('login_id')  # Use 'login_id' instead of 'user_id'
-    if not login_id:
-        flash("User not logged in", "error")
-        return redirect(url_for('auth.login'))
-   
-    # Ensure that only regular users access this page
-    if session.get('role') != 'user':
-        return redirect(url_for('auth.login'))
-   
-    # Get the User object using login_id from the Login table
-    user = User.query.filter_by(login_id=login_id).first()
-    if not user:
-        flash("User not found", "error")
-        return redirect(url_for('auth.login'))
-    user_id = session.get('user_id')
-   
-    if not user_id:
-        flash("User is not logged in.", "error")
-        return redirect(url_for('auth.login'))
-    
-    # Fetch all applications for the logged-in user, ordered by date_applied descending (most recent first)
-    applications = JobApplication.query.filter_by(user_id=user_id).order_by(JobApplication.date_applied.desc()).all()
-   
-    # Retrieve chart data, recent activities, and live feed using the common helper function
-    user_success_rate, applications_overview, recent_activities, live_feed = get_chart_data_for_user(user_id)
-    
-    # Render the template with the application data, chart data, recent activities, and live feed
-    return render_template('/user/applicationhistory.html',
-                           user=user,
-        applications=applications,
-        user_success_rate=user_success_rate,
-        applications_overview=applications_overview,
-        recent_activities=recent_activities,
-        live_feed=live_feed
-    )
-
-
-@user_blueprint.route('/api/application_v2/<uuid:application_id>', methods=['GET'])
-@no_cache
-@login_required
-def get_application_details_api(application_id):
-    """API endpoint to get fresh application details"""
-    try:
-        # Force a session refresh to ensure we get the latest data from DB
-        # This handles cases where the status was updated by another user (Company)
-        db.session.commit()
-        db.session.expire_all()
-        
-        user_pk = session.get('user_id')
-        if not user_pk:
-            return jsonify({'error': 'Unauthorized'}), 401
-
-        # Fetch the application making sure it belongs to the logged-in user
-        application = JobApplication.query.filter_by(id=application_id, user_id=user_pk).first()
-        
-        if not application:
-            return jsonify({'error': 'Application not found'}), 404
-            
-        # Get related data
-        job = Job.query.get(application.job_id)
-        # Using the same join logic as used elsewhere to get company name
-        # Job -> Login (created_by) -> Company
-        company_name = "Unknown Company"
-        if job:
-            creator = Login.query.get(job.created_by)
-            if creator:
-                company_record = Company.query.filter_by(login_id=creator.id).first()
-                if company_record:
-                    company_name = company_record.company_name
-
-        return jsonify({
-            'id': application.id,
-            'job_title': job.title if job else "Unknown Job",
-            'company_name': company_name,
-            'status': application.status,
-            'date_applied': application.date_applied.isoformat() if application.date_applied else None,
-            'status_updated_at': application.status_updated_at.isoformat() if application.status_updated_at else None
-        })
-    except Exception as e:
-        print(f"Error fetching application details: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-
-# ==============================================================================
-# SAVED JOBS / FAVORITES
-# ==============================================================================
 @user_blueprint.route('/save_job/<uuid:job_id>', methods=['POST'])
 @no_cache
 @login_required
@@ -1263,38 +1315,8 @@ def save_job(job_id):
     flash("Job saved to favorites", "success")
     return redirect(request.referrer or url_for('user.user_dashboard'))
 
-# Updated Save Job Route
-@user_blueprint.route('/save_job1/<uuid:job_id>', methods=['POST'])
-@no_cache
-@login_required
-def save_job1(job_id):
-    login_id = session.get('login_id')
-    if not login_id:
-        flash("User not logged in", "error")
-        return redirect(url_for('auth.login'))
-   
-    user = User.query.filter_by(login_id=login_id).first()
-    if not user:
-        flash("User not found", "error")
-        return redirect(url_for('auth.login'))
-   
-    # Get the source page to determine redirect behavior
-    source_page = request.form.get('source_page', 'job_search')
-    
-    # Check if job is already saved
-    existing_favorite = Favorite.query.filter_by(user_id=user.id, job_id=job_id).first()
-    if existing_favorite:
-        flash("Job already saved", "info")
-        return redirect(request.referrer or url_for('user.job_search'))
-   
-    # Create new favorite entry
-    new_favorite = Favorite(user_id=user.id, job_id=job_id)
-    db.session.add(new_favorite)
-    db.session.commit()
-   
-    flash("Job saved to favorites", "success")
-    return redirect(request.referrer or url_for('user.job_search'))
-
+from flask import request
+from sqlalchemy import or_
 
 @user_blueprint.route('/favorites')
 @no_cache
@@ -1387,7 +1409,6 @@ def favorites():
         applied_job_ids=applied_job_ids,
         search_query=search_query  # Pass search query to template
     )
-
 @user_blueprint.route('/remove_favorite/<uuid:job_id>', methods=['POST'])
 @no_cache
 @login_required
@@ -1414,172 +1435,98 @@ def remove_favorite(job_id):
     flash("Job removed from favorites", "success")
     return redirect(url_for('user.favorites'))
 
-
-# ==============================================================================
-# NOTIFICATIONS
-# ==============================================================================
-@user_blueprint.route('/notifications', methods=['GET'])
+@user_blueprint.route('/delete_resume/<uuid:resume_id>', methods=['POST'])
 @no_cache
 @login_required
-def notifications():
-    login_id = session.get('login_id')  # Use 'login_id' instead of 'user_id'
-    if not login_id:
-        flash("User not logged in", "error")
-        return redirect(url_for('auth.login'))
-   
-    # Ensure that only regular users access this page
-    if session.get('role') != 'user':
-        return redirect(url_for('auth.login'))
-   
-    # Get the User object using login_id from the Login table
-    user = User.query.filter_by(login_id=login_id).first()
-    if not user:
-        flash("User not found", "error")
-        return redirect(url_for('auth.login'))
-    user_pk = session.get('user_id')
-    if not user_pk:
-        flash("Please log in to view notifications.", "danger")
-        return redirect(url_for('auth.login'))
-
-    # Retrieve the user record to get the user's login_id (which is stored in the Communication table)
-    users = User.query.get(user_pk)
-    if not users:
-        flash("User not found.", "danger")
-        return redirect(url_for('auth.login'))
-
-    # Paginate the notifications query
-    page = request.args.get('page', 1, type=int)
-    per_page = 5  # Changed from unlimited to 5 per page
-
-    # Use the user's login_id for querying communications and filter out hidden ones if needed.
-    notifications_query = Communication.query.filter_by(user_id=users.login_id, hidden=False)\
-        .order_by(Communication.timestamp.desc())
-    
-    notifications_pagination = notifications_query.paginate(page=page, per_page=per_page, error_out=False)
-    notifications = notifications_pagination.items
-    total_pages = notifications_pagination.pages
-    
-    unread_count = Communication.query.filter_by(user_id=users.login_id, read_status=False, hidden=False).count()
-
-    return render_template(
-        '/user/notification.html',
-        user=user,
-        notifications=notifications,
-        unread_count=unread_count,
-        page=page,
-        total_pages=total_pages
-    )
-
-
-@user_blueprint.route('/mark_notification_read/<uuid:notification_id>', methods=['POST'], endpoint='mark_single_notification_read')
-@no_cache
-@login_required
-def mark_notification_read(notification_id):
-    # Your code for marking a single notification as read...
-
-
-    user_pk = session.get('user_id')
-    if not user_pk:
-        flash("Please log in.", "danger")
+def delete_resume(resume_id):
+    # Check if user is logged in
+    if 'username' not in session:
+        flash('Please log in to access this page.', 'error')
         return redirect(url_for('auth.login'))
     
-    # Retrieve user record to get the correct login_id
-    user = User.query.get(user_pk)
-    if not user:
-        flash("User not found.", "danger")
-        return redirect(url_for('auth.login'))
-
-    # Retrieve the specific notification and verify ownership using user.login_id
-    notification = Communication.query.filter_by(
-        id=notification_id, 
-        user_id=user.login_id, 
-        hidden=False
-    ).first()
-    
-    if notification:
-        notification.read_status = True
-        db.session.commit()
-        
-    else:
-        flash("Notification not found.", "danger")
-    
-    return redirect(url_for('user.notifications'))
-
-
-@user_blueprint.route('/delete_notification/<uuid:notification_id>', methods=['POST'])
-@no_cache
-@login_required
-def delete_notification(notification_id):
-    user_pk = session.get('user_id')
-    if not user_pk:
-        flash("Unauthorized access.", "danger")
-        return redirect(url_for('auth.login'))
-    
-    user = User.query.get(user_pk)
-    if not user:
-        flash("User not found.", "danger")
-        return redirect(url_for('auth.login'))
-
-    # Retrieve the specific notification belonging to this user that is not already hidden
-    notification = Communication.query.filter_by(
-        id=notification_id, 
-        user_id=user.login_id, 
-        hidden=False
-    ).first()
-    
-    if notification:
-        notification.hidden = True  # Soft-delete by marking as hidden
-        db.session.commit()
-        flash("Notification removed.", "success")
-    else:
-        flash("Notification not found.", "danger")
-    
-    return redirect(url_for('user.notifications'))
-
-
-# ==============================================================================
-# HELPER FUNCTIONS
-# ==============================================================================
-
-# ============================================================================
-# HELPER FUNCTIONS FOR USER MODULE
-# ============================================================================
-def sanitize_text(value: str) -> str:
-    """ Sanitize text input to prevent XSS attacks. Removes script tags, javascript: URLs, data: URLs, and event handlers. """
-    if not value:
-        return ''
-    # Remove <script>...</script>
-    value = re.sub(r'<\s*script[^>]*>.*?<\s*/\s*script\s*>', '', value, flags=re.IGNORECASE | re.DOTALL)
-    # Remove javascript: or data: URLs inside attributes or text
-    value = re.sub(r'javascript\s*:', '', value, flags=re.IGNORECASE)
-    value = re.sub(r'data\s*:[^ \t\r\n]*', '', value, flags=re.IGNORECASE)
-    # Remove on* event handlers
-    value = re.sub(r'on\w+\s*=\s*"[^\"]*"', '', value, flags=re.IGNORECASE)
-    value = re.sub(r'on\w+\s*=\s*\'[^\']*\'', '', value, flags=re.IGNORECASE)
-    # Remove < and > characters
-    value = value.replace('<', '').replace('>', '')
-    return value.strip()
-
-
-def is_valid_url(url: str) -> bool:
-    """ Validate if a string is a properly formatted URL. """
     try:
-        result = urlparse(url)
-        return all([result.scheme, result.netloc])
-    except:
-        return False
+        username = session['username']
+        
+        # Get the login record first
+        login = Login.query.filter_by(username=username).first()
+        if not login:
+            flash('Login not found!', 'error')
+            return redirect(url_for('user.resume_certifications'))
+        
+        # Get the user record using the login_id
+        user = User.query.filter_by(login_id=login.id).first()
+        if not user:
+            flash('User not found!', 'error')
+            return redirect(url_for('user.resume_certifications'))
+        
+        # Find the resume for this specific user
+        resume = ResumeCertification.query.filter_by(
+            id=resume_id, 
+            user_id=user.id
+        ).first()
+        
+        if resume:
+            # Delete the file from filesystem
+            import os
+            if resume.resume_path and os.path.exists(resume.resume_path):
+                os.remove(resume.resume_path)
+            
+            # Delete the record from database
+            db.session.delete(resume)
+            db.session.commit()
+            
+            flash('Resume deleted successfully!', 'success')
+        else:
+            flash('Resume not found or you do not have permission to delete it!', 'error')
+            
+    except Exception as e:
+        print(f"Error deleting resume: {str(e)}")
+        flash('Error deleting resume!', 'error')
+        
+    return redirect(url_for('user.resume_certifications'))
 
-
-def is_valid_email(email: str) -> bool:
-    """ Validate email format using regex. """
-    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(email_regex, email) is not None
-
-
-def count_words(text: str) -> int:
-    """ Count words in a text string. """
-    if not text:
-        return 0
-    return len(text.strip().split())
-
-
+@user_blueprint.route('/delete_certification/<uuid:certification_id>', methods=['POST'])
+@no_cache
+@login_required
+def delete_certification(certification_id):
+    # Check if user is logged in
+    if 'username' not in session:
+        flash('Please log in to access this page.', 'error')
+        return redirect(url_for('auth.login'))
+   
+    try:
+        username = session['username']
+       
+        # Get the login record first
+        login = Login.query.filter_by(username=username).first()
+        if not login:
+            flash('Login not found!', 'error')
+            return redirect(url_for('user.resume_certifications'))
+       
+        # Get the user record using the login_id
+        user = User.query.filter_by(login_id=login.id).first()
+        if not user:
+            flash('User not found!', 'error')
+            return redirect(url_for('user.resume_certifications'))
+       
+        # Find the certification for this specific user
+        # Assuming Certification model has user_id field
+        certification = Certification.query.filter_by(
+            id=certification_id,
+            user_id=user.id
+        ).first()
+       
+        if certification:
+            # Delete the certification record from database
+            db.session.delete(certification)
+            db.session.commit()
+           
+            flash('Skill/Certification deleted successfully!', 'success')
+        else:
+            flash('Skill/Certification not found or you do not have permission to delete it!', 'error')
+           
+    except Exception as e:
+        print(f"Error deleting certification: {str(e)}")
+        flash('Error deleting skill/certification!', 'error')
+       
+    return redirect(url_for('user.resume_certifications'))
