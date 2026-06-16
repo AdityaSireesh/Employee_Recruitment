@@ -5,36 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Notifications</title>
   
-  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- Font Awesome -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
   
-  <!-- Animate.css -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" />
   
-  <!-- Balloon.css -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/balloon-css/balloon.min.css" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/user/notification.css') }}">
   
 </head>
 <body class="bg-gray-100">
-  <!-- Flash Messages -->
   <div class="flash-container">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         {% for category, message in messages %}
           <div class="alert alert-{{ category }} flash-message alert-dismissible fade show" role="alert">
             {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
           </div>
         {% endfor %}
       {% endif %}
     {% endwith %}
   </div>
 
-  <!-- Header -->
   <header>
     <div class="menu-toggle">
       <i class="fas fa-bars"></i>
@@ -58,10 +51,7 @@
     </div>
   </header>
   
-  <!-- Main Layout -->
-<!-- Layout -->
-<main>
-  <!-- Navigation Sidebar -->
+  <main>
   <div class="navigation" id="side-navigation">
     <button onclick="window.location.href='/user/user_dashboard'">
       <i class="fas fa-home"></i> Home
@@ -80,21 +70,22 @@
     </button>
   </div>
 
-    <!-- Activity Section -->
     <div class="activity" id="activityContent">
       <h2>Notifications</h2>
       
-      <!-- Search and Filters -->
       <div class="search-filter-container">
-        <input type="text" id="search" onkeyup="filterAndSearchNotifications()" placeholder="Search notifications..." class="search-bar" />
+        <div class="search-wrapper">
+          <input type="text" id="search" placeholder="Search notifications..." value="{{ search_query|default('') }}" class="search-bar" style="font-family: monospace;" />
+          <i class="fas fa-search search-icon"></i>
+        </div>
+
         <div class="filters">
-          <button id="filterUnread" class="unread" onclick="setFilter('unread')">Unread</button>
-          <button id="filterRead" class="read" onclick="setFilter('read')">Read</button>
-          <button id="filterAll" class="bg-gray-300 text-gray-800" onclick="setFilter('all')">All</button>
+          <button id="filterAll" class="px-4 py-1 rounded transition-colors duration-200" onclick="setFilter('all')">All</button>
+          <button id="filterUnread" class="px-4 py-1 rounded transition-colors duration-200" onclick="setFilter('unread')">Unread</button>
+          <button id="filterRead" class="px-4 py-1 rounded transition-colors duration-200" onclick="setFilter('read')">Read</button>
         </div>
       </div>
       
-      <!-- Notifications List -->
       <div id="notifications-list">
         {% if notifications %}
           {% for notification in notifications %}
@@ -102,7 +93,6 @@
             <div class="flex items-start">
               <i class="notification-icon fas fa-info-circle"></i>
               <div class="ml-4 flex-1">
-                <!-- Company Name Display -->
                 <div class="notification-company-name mb-1">
                   <i class="fas fa-building text-blue-500 mr-1"></i>
                   <span class="text-sm font-semibold text-blue-600">
@@ -118,12 +108,17 @@
               </div>
               <div class="action-buttons flex gap-2">
                 {% if not notification.read_status %}
-                <form action="{{ url_for('user.mark_single_notification_read', notification_id=notification.id) }}" method="POST">
+                <form action="{{ url_for('user.notifications', filter=current_filter|default('all'), page=page)}}" method="POST">
+                  <input type="hidden" name="notification_id" value="{{ notification.id }}">
+                  <input type="hidden" name="action" value="mark_read">
+                  <input type="hidden" name="page" value="{{ page }}">
                   <button type="submit" class="mark-read"><i class="fas fa-check"></i></button>
                 </form>
                 {% endif %}
-                
-                <form action="{{ url_for('user.delete_notification', notification_id=notification.id) }}" method="POST">
+                <form action="{{ url_for('user.notifications', filter=current_filter|default('all'), page=page)}}" method="POST">
+                  <input type="hidden" name="notification_id" value="{{ notification.id }}">
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="page" value="{{ page }}">
                   <button type="submit" class="delete"><i class="fas fa-trash-alt"></i></button>
                 </form>
               </div>
@@ -131,12 +126,10 @@
           </div>
           {% endfor %}
           
-          <!-- No notifications message -->
           <div id="no-notifications-message" style="display: none;">
             <p>No matching notifications available.</p>
           </div>
           
-          <!-- Pagination Controls -->
           <div class="pagination">
             <button id="prev-page" disabled>&laquo; Previous</button>
             <span id="page-info">Page  {{ page if page > 0 else 0 }} of {{ total_pages if total_pages > 0 else 0 }}</span>
@@ -147,7 +140,6 @@
             <i class="fas fa-bell-slash text-5xl text-gray-300"></i>
             <p class="mt-4 font-semibold">You have no notifications at the moment.</p>
           </div>
-          <!-- Pagination for empty state -->
           <div class="pagination">
             <button id="prev-page" disabled>&laquo; Previous</button>
             <span id="page-info">Page 0 of 0</span>
@@ -158,10 +150,9 @@
     </div>
   </main>
   
-  <!-- JavaScript for Search, Filter, and Dropdown -->
   <script>
     // Global filter state: 'all', 'read', or 'unread'
-    let currentFilter = 'all';
+    let currentFilter = '{{ current_filter }}';
 
     // Pagination variables - Fix for empty state
     let currentPage = {{ page if page > 0 else 1 }};
@@ -198,79 +189,93 @@
 
     // Set the filter and update button styles
     function setFilter(filterType) {
-      currentFilter = filterType;
-      
-      // Reset all buttons to default state
-      document.getElementById('filterUnread').className = 'unread';
-      document.getElementById('filterRead').className = 'read';
-      document.getElementById('filterAll').className = 'bg-gray-300 text-gray-800';
-      
-      // Highlight the active button
-      if (filterType === 'unread') {
-        document.getElementById('filterUnread').classList.add('bg-green-500', 'text-white');
-      } else if (filterType === 'read') {
-        document.getElementById('filterRead').classList.add('bg-gray-800', 'text-white');
-      } else if (filterType === 'all') {
-        document.getElementById('filterAll').classList.remove('bg-gray-300', 'text-gray-800');
-        document.getElementById('filterAll').classList.add('bg-blue-500', 'text-white');
+      const searchQuery = document.getElementById("search").value.trim();
+      let url = `{{ url_for('user.notifications') }}?filter=${filterType}&page=1`;
+      if (searchQuery) {
+        url += `&search_query=${encodeURIComponent(searchQuery)}`;
       }
-      
-      filterAndSearchNotifications();
+      window.location.href = url;
     }
     
-    // Combine search and filter criteria - Updated to include company name in search
+    // Combine search (Updated for server-side logic)
     function filterAndSearchNotifications() {
-      const searchInput = document.getElementById("search").value.toLowerCase();
-      const notifications = document.querySelectorAll("#notifications-list .notification-item-paginated");
-      
-      notifications.forEach(notification => {
-        const message = notification.querySelector(".notification-message").innerText.toLowerCase();
-        const companyName = notification.querySelector(".notification-company-name span").innerText.toLowerCase();
-        const matchesSearch = message.includes(searchInput) || companyName.includes(searchInput);
-        
-        let matchesFilter = true;
-        if (currentFilter === 'read') {
-          matchesFilter = notification.classList.contains("read");
-        } else if (currentFilter === 'unread') {
-          matchesFilter = notification.classList.contains("unread");
-        }
-        
-        notification.style.display = (matchesSearch && matchesFilter) ? "block" : "none";
-      });
+      const searchQuery = document.getElementById("search").value.trim();
+      let url = `{{ url_for('user.notifications') }}?filter=${currentFilter}&page=1`;
+      if (searchQuery) {
+        url += `&search_query=${encodeURIComponent(searchQuery)}`;
+      }
+      window.location.href = url;
     }
 
-    // Initialize pagination
+    // Trigger search on Enter key
+    document.getElementById('search').addEventListener('keypress', function(event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        filterAndSearchNotifications();
+      }
+    });
+
+    // Initialize UI on load
     window.addEventListener('load', function() {
+      const btnUnread = document.getElementById('filterUnread');
+      const btnRead = document.getElementById('filterRead');
+      const btnAll = document.getElementById('filterAll');
+
+      const allButtons = [btnUnread, btnRead, btnAll];
+      allButtons.forEach(btn => {
+        btn.classList.remove('bg-green-500', 'bg-gray-800', 'bg-blue-500', 'text-white');
+        btn.classList.add('bg-gray-300', 'text-gray-800');
+      });
+      
+      //Apply the active color to the selected filter
+      if (currentFilter === 'unread') {
+        btnUnread.classList.remove('bg-gray-300', 'text-gray-800');
+        btnUnread.classList.add('bg-blue-500', 'text-white');
+      } else if (currentFilter === 'read') {
+        btnRead.classList.remove('bg-gray-300', 'text-gray-800');
+        btnRead.classList.add('bg-blue-500', 'text-white');
+      } else {
+        // Default to 'all'
+        btnAll.classList.remove('bg-gray-300', 'text-gray-800');
+        btnAll.classList.add('bg-blue-500', 'text-white');
+      }
+
       const notifications = document.querySelectorAll('.notification-item-paginated');
-      // Show all notifications sent by server (server already handles pagination)
       notifications.forEach(notification => {
         notification.style.display = 'block';
       });
       updatePagination();
     });
 
-    // Update pagination controls
     function updatePagination() {
       const displayTotalPages = totalPages || 0;
       const displayCurrentPage = totalPages === 0 ? 0 : currentPage;
       document.getElementById('page-info').textContent = `Page ${displayCurrentPage} of ${displayTotalPages}`;
       
-      document.getElementById('prev-page').disabled = currentPage === 1 || totalPages === 0;
+      document.getElementById('prev-page').disabled = currentPage <= 1 || totalPages === 0;
       document.getElementById('next-page').disabled = currentPage >= totalPages || totalPages === 0;
     }
 
-    // Pagination controls
+    // Pagination controls pass BOTH page and the active filter + search
     document.getElementById('prev-page').addEventListener('click', function() {
       if (currentPage > 1) {
-        // Use server-side pagination
-        window.location.href = '{{ url_for("user.notifications") }}?page=' + (currentPage - 1);
+        const searchQuery = document.getElementById("search").value.trim();
+        let url = `{{ url_for("user.notifications") }}?page=${currentPage - 1}&filter=${currentFilter}`;
+        if (searchQuery) {
+          url += `&search_query=${encodeURIComponent(searchQuery)}`;
+        }
+        window.location.href = url;
       }
     });
     
     document.getElementById('next-page').addEventListener('click', function() {
       if (currentPage < totalPages) {
-        // Use server-side pagination
-        window.location.href = '{{ url_for("user.notifications") }}?page=' + (currentPage + 1);
+        const searchQuery = document.getElementById("search").value.trim();
+        let url = `{{ url_for("user.notifications") }}?page=${currentPage + 1}&filter=${currentFilter}`;
+        if (searchQuery) {
+          url += `&search_query=${encodeURIComponent(searchQuery)}`;
+        }
+        window.location.href = url;
       }
     });
     
