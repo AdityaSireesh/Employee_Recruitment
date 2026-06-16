@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request, make_response, session
 from datetime import datetime, timedelta
-from models import db, User, Job, Company, JobApplication, Login, Favorite, Communication, Notification, Couponuser, ResumeCertification, Certification
+from models import db, User, Job, Company, JobApplication, Login, Favorite, Communication, Notification, Couponuser, ResumeCertification, Certification, College, Coupon
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import or_, func
 import calendar
@@ -8,6 +8,10 @@ import pytz
 import uuid
 import re
 from utils_url import url_seems_reachable
+from werkzeug.utils import secure_filename
+from flask import current_app
+import os
+        
 
 # Define the admin blueprint
 admin_blueprint = Blueprint('admin', __name__)
@@ -63,10 +67,16 @@ def get_users():
             query = query.order_by(User.name.desc())
         else:
             query = query.order_by(User.name.asc())
-    else:
-        # Default sort order if no valid sort parameter is provided
-        query = query.order_by(User.updated_at.desc())
-
+    elif sort_by == 'email':
+        if order == 'desc':
+            query = query.order_by(User.email.desc())
+        else:
+            query = query.order_by(User.email.asc())
+    elif sort_by == 'college_name':
+        if order == 'desc':
+            query = query.order_by(User.college_name.desc())
+        else:
+            query = query.order_by(User.college_name.asc())
     users = query.all()
     # --- END OF SORTING LOGIC ---
 
@@ -190,9 +200,12 @@ def delete_users_bulk():
 @admin_blueprint.route('/companies/<uuid:id>', methods=['GET'])
 def get_company_details(id):
     company = Company.query.get_or_404(id)
+    login_record = Login.query.get(company.login_id) # Fetch the login record
+    
     company_data = {
         'id': company.id,
         'company_name': company.company_name,
+        'username': login_record.username if login_record else company.company_name, # Added username
         'email': company.email,
         'address': company.address,
         'website': company.website,
@@ -238,9 +251,16 @@ def get_companies():
             query = query.order_by(Company.company_name.desc())
         else:
             query = query.order_by(Company.company_name.asc())
-    else:
-        # Default sort order
-        query = query.order_by(Company.updated_at.desc())
+    elif sort_by == 'email':
+        if order == 'desc':
+            query = query.order_by(Company.email.desc())
+        else:
+            query = query.order_by(Company.email.asc())
+    elif sort_by == 'industry':
+        if order == 'desc':
+            query = query.order_by(Company.industry.desc())
+        else:
+            query = query.order_by(Company.industry.asc())
 
     companies = query.all()
     # --- END OF SORTING LOGIC ---
@@ -385,123 +405,125 @@ def validate_email_domain(email):
         print(f"Email validation error for {email}: {e}")
         return True, None  # Don't block users on unexpected errors
 
+@admin_blueprint.route('/check_email', methods=['POST'])
+def check_email():
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+    
+    if not email:
+        return jsonify({"exists": False}), 200
+        
+    existing_email = User.query.filter(func.lower(User.email) == email).first() or \
+                     Company.query.filter(func.lower(Company.email) == email).first() or \
+                     College.query.filter(func.lower(College.email) == email).first()
+                     
+    return jsonify({"exists": bool(existing_email)}), 200
+
 @admin_blueprint.route('/companies', methods=['POST'])
 def create_company():
-    data = request.json or {}
-
+    # ✅ Switched to request.form for file upload compatibility
+    data = request.form
+    
     try:
-        raw_company_name = (data.get('company_name') or '').strip()
+        raw_username = (data.get('username') or '').strip()
         raw_email = (data.get('email') or '').strip()
         raw_address = (data.get('address') or '').strip()
         raw_website = (data.get('website') or '').strip()
-        raw_logo = (data.get('logo') or '').strip()
         raw_description = (data.get('description') or '').strip()
         industry = (data.get('industry') or '').strip()
         password = data.get('password') or ''
-        is_banned = data.get('is_banned', False)
+        
+        # Parse boolean values from form data strings
+        is_banned = str(data.get('is_banned', '')).lower() == 'true'
+        force_email = str(data.get('force_email', '')).lower() == 'true'
 
-        # Always define website/logo to avoid UnboundLocalError
         website = raw_website.strip() if raw_website else ''
-        logo = raw_logo.strip() if raw_logo else ''
 
-        # ---- Reject raw dangerous content (like company_post_new_job) ----
-        dangerous_raw_fields = [raw_company_name, raw_address, raw_description]
-        if any(
-            re.search(r'<\s*script[\s\S]*?>[\s\S]*?<\s*/\s*script\s*>', f, re.IGNORECASE) or
-            re.search(r'(javascript\s*:|data\s*:)', f, re.IGNORECASE)
-            for f in dangerous_raw_fields if f
-        ):
-            return jsonify({
-                "message": "Dangerous content is not allowed in text fields."
-            }), 400
+        dangerous_raw_fields = [raw_username, raw_address, raw_description]
+        if any(re.search(r'<\s*script[\s\S]*?>[\s\S]*?<\s*/\s*script\s*>', f, re.IGNORECASE) or
+               re.search(r'(javascript\s*:|data\s*:)', f, re.IGNORECASE) for f in dangerous_raw_fields if f):
+            return jsonify({"message": "Dangerous content is not allowed."}), 400
 
-        # ---- Sanitise text ----
-        company_name = sanitize_text(raw_company_name)
+        username = sanitize_text(raw_username)
         address = sanitize_text(raw_address)
         description = sanitize_text(raw_description)
 
-        # ---- Basic required checks ----
-        if not company_name:
-            return jsonify({
-                "message": "Company Name is required."
-            }), 400
+        if not username:
+            return jsonify({"message": "Username is required.", "field": "username"}), 400
+        if len(username) < 3 or len(username) > 30:
+            return jsonify({"message": "Username must be between 3-30 characters!", "field": "username"}), 400
+        if ' ' in username:
+            return jsonify({"message": "Username cannot contain spaces.", "field": "username"}), 400
+        if username.startswith('_') or username.startswith('.') or username.endswith('_') or username.endswith('.'):
+            return jsonify({"message": "Username cannot start or end with _ or .", "field": "username"}), 400
+        if not re.match(r'^[a-zA-Z0-9_.]+$', username):
+            return jsonify({"message": "Username can only contain letters, numbers, _, and .", "field": "username"}), 400
 
-        if len(company_name) < 3 or len(company_name) > 100:
-            return jsonify({"message": "Company Name must be between 3-100 characters!"}), 400
+        existing_login = Login.query.filter(func.lower(Login.username) == username.lower()).first()
+        if existing_login:
+            return jsonify({"message": "This username is already taken.", "field": "username"}), 400
 
         if not raw_email:
-            return jsonify({"message": "Email address is required."}), 400
-
+            return jsonify({"message": "Email address is required.", "field": "email"}), 400
         if not re.match(r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$', raw_email):
-            return jsonify({"message": "Invalid email format!"}), 400
+            return jsonify({"message": "Invalid email format!", "field": "email"}), 400
 
-        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._%+-]{0,63}@[a-zA-Z0-9][a-zA-Z0-9.-]{0,253}\.[a-zA-Z]{2,}$', raw_email):
-            return jsonify({"message": "Invalid email format!"}), 400
+        if not force_email:
+            existing_email = User.query.filter(func.lower(User.email) == raw_email.lower()).first() or \
+                             Company.query.filter(func.lower(Company.email) == raw_email.lower()).first() or \
+                             College.query.filter(func.lower(College.email) == raw_email.lower()).first()
+            if existing_email:
+                return jsonify({
+                    "message": "This email is already associated with another account.", 
+                    "field": "email",
+                    "duplicate_email_warning": True
+                }), 400
         
-        if '..' in raw_email or raw_email.startswith('.') or raw_email.endswith('.'):
-            return jsonify({"message": "Email format is invalid."}), 400
-        
-        if len(raw_email) > 90:
-            return jsonify({"message": "Email address is too long."}), 400
-        
-        # ✅ NEW: DNS MX Record Check
         is_valid_domain, domain_error = validate_email_domain(raw_email)
         if not is_valid_domain:
-            return jsonify({"message": domain_error}), 400
+            return jsonify({"message": domain_error, "field": "email"}), 400
 
         if not password:
-            return jsonify({"message": "Password is required."}), 400
+            return jsonify({"message": "Password is required.", "field": "password"}), 400
 
-        if len(description) > 1000:
-            return jsonify({"message": "Description must be under 1000 characters!"}), 400
-
-        if len(address) > 500:
-            return jsonify({"message": "Address must be under 500 characters!"}), 400
-
-        # ---- Website URL checks (optional field) ----
         if website:
             if re.search(r'\s', website):
-                return jsonify({"message": "Please enter only one website URL."}), 400
-
-            # Must start with http/https
+                return jsonify({"message": "Please enter only one website URL.", "field": "website"}), 400
             if not re.match(r'^https?', website, re.IGNORECASE):
-                return jsonify({"message": "Website URL must start with http or https."}), 400
-            # Block javascript:/data:
+                return jsonify({"message": "Website URL must start with http/https.", "field": "website"}), 400
             if re.match(r'^(javascript|data)', website, re.IGNORECASE):
-                return jsonify({"message": "Website URL scheme is not allowed."}), 400
-            # Optional ping
-            if website and not url_seems_reachable(website):
-                return jsonify({"message": "Website URL could not be reached. Please check the link."}), 400
+                return jsonify({"message": "Website URL scheme is not allowed.", "field": "website"}), 400
+            if not url_seems_reachable(website):
+                return jsonify({"message": "Website URL could not be reached.", "field": "website"}), 400
 
-        # ---- Logo URL checks (optional field) ----
-        if logo:
-            # Single URL only
-            if re.search(r'\s', logo):
-                return jsonify({"message": "Please enter only one logo URL."}), 400
-            if not re.match(r'^https?', logo, re.IGNORECASE):
-                return jsonify({"message": "Please provide a publicly accessible link."}), 400
-            if re.match(r'^(javascript:|data:)', logo, re.IGNORECASE):
-                return jsonify({"message": "Logo URL scheme is not allowed."}), 400
-            if logo and not url_seems_reachable(logo):
-                return jsonify({"message": "Logo URL could not be reached. Please check the link."}), 400
+        logo_file = request.files.get('logo')
+        logo_path = ''
+        if logo_file and logo_file.filename != '':
+            allowed_extensions = {'png', 'jpg', 'jpeg', 'gif'}
+            ext = logo_file.filename.rsplit('.', 1)[1].lower() if '.' in logo_file.filename else ''
+            if ext in allowed_extensions:
+                unique_filename = f"company_logo_{uuid.uuid4().hex[:8]}.{ext}"
+                logos_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'company_logos')
+                if not os.path.exists(logos_dir):
+                    os.makedirs(logos_dir)
+                file_path = os.path.join(logos_dir, unique_filename)
+                logo_file.save(file_path)
+                logo_path = f"/static/uploads/company_logos/{unique_filename}"
+            else:
+                return jsonify({"message": "Invalid image format. Only JPG, PNG, and GIF allowed.", "field": "logo"}), 400
 
-        # ---- Create Login entry ----
-        new_login = Login(
-            username=company_name,
-            role='company'
-        )
+        new_login = Login(username=username, role='company')
         new_login.set_password(password)
         db.session.add(new_login)
-        db.session.flush()  # get new_login.id
+        db.session.flush()
 
-        # --- create Company record with correct column names ---
         new_company = Company(
             login_id=new_login.id,
-            company_name=company_name,
+            company_name=username,
             email=raw_email,
             address=address,
             website=website,
-            logo=logo,
+            logo=logo_path,
             description=description,
             industry=industry,
             is_banned=is_banned,
@@ -510,17 +532,11 @@ def create_company():
         db.session.add(new_company)
         db.session.commit()
 
-        return jsonify({
-            "message": "Company created successfully!",
-            "id": str(new_company.id),
-            "login_id": str(new_login.id),
-        }), 201
+        return jsonify({"message": "Company created successfully!", "id": str(new_company.id)}), 201
 
     except Exception as e:
         db.session.rollback()
-        # log for debugging
-        print(f"ERROR /companies POST: {e}")
-        return jsonify({"message": f"Error creating company"}), 500 # : {str(e)}
+        return jsonify({"message": f"BACKEND CRASH: {str(e)}"}), 500
 
 @admin_blueprint.route('/companies/<uuid:company_id>', methods=['PUT'])
 def update_company(company_id):
@@ -699,9 +715,31 @@ def get_jobs():
             query = query.order_by(Job.title.desc())
         else:
             query = query.order_by(Job.title.asc())
-    else:
-        # Default sort order
-        query = query.order_by(Job.updated_at.desc())
+    elif sort_by == 'company_name':
+        if order == 'desc':
+            query = query.order_by(Company.company_name.desc())
+        else:
+            query = query.order_by(Company.company_name.asc())
+    elif sort_by == 'job_type':
+        if order == 'desc':
+            query = query.order_by(Job.job_type.desc())
+        else:
+            query = query.order_by(Job.job_type.asc())
+    elif sort_by == 'location':
+        if order == 'desc':
+            query = query.order_by(Job.location.desc())
+        else:
+            query = query.order_by(Job.location.asc())
+    elif sort_by == 'salary':
+        if order == 'desc':
+            query = query.order_by(Job.salary.desc())
+        else:
+            query = query.order_by(Job.salary.asc())
+    elif sort_by == 'status':
+        if order == 'desc':
+            query = query.order_by(Job.status.desc())
+        else:
+            query = query.order_by(Job.status.asc())    
     
     results = query.all()
     # --- END OF SORTING LOGIC ---
@@ -1132,13 +1170,133 @@ def get_dashboard_data():
         "range_received": range_type,
     })
 
-    return jsonify({
-        "metrics": {
-            "users": total_users,
-            "companies": total_companies,
-            "jobs": total_jobs,
-            "applications": total_applications,
-        },
-        "trends": trends,
-        "range_received": range_type,
-    })
+# ==========================================
+# COLLEGES API
+# ==========================================
+
+@admin_blueprint.route('/colleges/<uuid:id>', methods=['GET'])
+def get_college_details(id):
+    college = College.query.get_or_404(id)
+    login_record = Login.query.get(college.login_id)
+    college_data = {
+        'id': college.id,
+        'college_name': college.college_name,
+        'username': login_record.username if login_record else college.college_name,
+        'email': college.email,
+        'address': college.address,
+        'website': college.website,
+        'logo': college.logo,
+        'description': college.description,
+        'created_at': college.created_at,
+        'is_banned': college.is_banned
+    }
+    return jsonify(college_data)
+
+@admin_blueprint.route('/colleges', methods=['GET'])
+def get_colleges():
+    query = College.query
+    
+    if 'q' in request.args and request.args['q']:
+        search_term = request.args['q']
+        if "college_name:" in search_term:
+            name_term = search_term.split("college_name:")[1].strip()
+            query = query.filter(College.college_name.ilike(f"%{name_term}%"))
+        elif "email:" in search_term:
+            email_term = search_term.split("email:")[1].strip()
+            query = query.filter(College.email.ilike(f"%{email_term}%"))
+        else:
+            search_term = f"%{search_term}%"
+            query = query.filter(or_(
+                College.college_name.ilike(search_term),
+                College.email.ilike(search_term)
+            ))
+    
+    sort_by = request.args.get('sort')
+    order = request.args.get('order')
+
+    if sort_by == 'college_name':
+        query = query.order_by(College.college_name.desc() if order == 'desc' else College.college_name.asc())
+    elif sort_by == 'email':
+        query = query.order_by(College.email.desc() if order == 'desc' else College.email.asc())
+
+    colleges = query.all()
+
+    colleges_data = [{
+        'id': college.id,
+        'college_name': college.college_name,
+        'email': college.email,
+        'is_banned': college.is_banned
+    } for college in colleges]
+    
+    response = make_response(jsonify(colleges_data))
+    response.headers['Content-Range'] = f'colleges 0-{len(colleges_data)-1}/{len(colleges_data)}'
+    response.headers['Access-Control-Expose-Headers'] = 'Content-Range'
+    return response
+
+@admin_blueprint.route('/colleges/<uuid:id>', methods=['PUT'])
+def update_college_ban_status(id):
+    try:
+        college = College.query.get(id)
+        if not college:
+            return jsonify({'message': 'College not found'}), 404
+        
+        data = request.get_json()
+        if 'is_banned' in data:
+            college.is_banned = data['is_banned']
+        
+        db.session.commit()
+        return jsonify({'message': 'College ban status updated successfully', 'is_banned': college.is_banned}), 200
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        return jsonify({'message': f'Error updating college: {str(e)}'}), 500
+
+@admin_blueprint.route('/colleges/<uuid:college_id>', methods=['DELETE'])
+def delete_college(college_id):
+    college = College.query.get(college_id)
+    if not college:
+        return jsonify({"message": "College not found"}), 404
+    
+    try:
+        login_id = college.login_id
+        
+        # Delete dependent coupons
+        coupons = Coupon.query.filter_by(college_id=college.id).all()
+        coupon_ids = [c.id for c in coupons]
+        if coupon_ids:
+            Couponuser.query.filter(Couponuser.coupon_id.in_(coupon_ids)).delete(synchronize_session=False)
+            Coupon.query.filter(Coupon.id.in_(coupon_ids)).delete(synchronize_session=False)
+
+        # Delete college and login
+        db.session.delete(college)
+        Login.query.filter_by(id=login_id).delete(synchronize_session=False)
+        db.session.commit()
+        return jsonify({"id": college_id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Error deleting college: {str(e)}"}), 500
+
+@admin_blueprint.route('/colleges/bulk', methods=['DELETE'])
+def delete_colleges_bulk():
+    college_ids = request.json.get('ids', [])
+    if not college_ids:
+        return jsonify({"message": "No college IDs provided"}), 400
+    
+    try:
+        colleges = College.query.filter(College.id.in_(college_ids)).all()
+        login_ids = [c.login_id for c in colleges if c.login_id]
+        
+        coupons = Coupon.query.filter(Coupon.college_id.in_(college_ids)).all()
+        coupon_ids = [c.id for c in coupons]
+        if coupon_ids:
+            Couponuser.query.filter(Couponuser.coupon_id.in_(coupon_ids)).delete(synchronize_session=False)
+            Coupon.query.filter(Coupon.id.in_(coupon_ids)).delete(synchronize_session=False)
+
+        num_deleted = College.query.filter(College.id.in_(college_ids)).delete(synchronize_session=False)
+        if login_ids:
+            Login.query.filter(Login.id.in_(login_ids)).delete(synchronize_session=False)
+            
+        db.session.commit()
+        return jsonify({"message": f"Deleted {num_deleted} colleges successfully"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Error during bulk college deletion: {str(e)}"}), 500
