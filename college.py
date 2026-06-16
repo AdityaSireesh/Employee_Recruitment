@@ -2,19 +2,20 @@ from datetime import datetime, date
 import random
 import re
 import string
-from flask import Blueprint, render_template, request, session, redirect, url_for, flash, jsonify, make_response
+from flask import Blueprint, render_template, request, session, redirect, url_for, flash, jsonify, make_response, current_app
 from functools import wraps
 import os, uuid
 from werkzeug.utils import secure_filename
 from flask_login import login_required, current_user
 from models import Certification, Company, Coupon, Couponuser, Job
-from models import College, Login, JobApplication, User, db  # Ensure 'db' is the instance of SQLAlchemy
+from models import College, Login, JobApplication, ResumeCertification, User, db  # Ensure 'db' is the instance of SQLAlchemy
 from config import Config
 from utils import allowed_file  # Assuming your config file is named config.py
 from sqlalchemy.sql import func
 from sqlalchemy import distinct
 from auth import secure_route
 from utils_url import url_seems_reachable
+from sqlalchemy import or_
 
 college_blueprint = Blueprint('college', __name__)
 
@@ -110,11 +111,16 @@ def college_dashboard():
         db.func.max(student_latest_hire.c.latest_year)
     ).first()
     
-    min_year = int(min_max_years[0]) if min_max_years[0] else datetime.now().year
-    max_year = int(min_max_years[1]) if min_max_years[1] else datetime.now().year
+    current_year = datetime.now().year
+    db_min_year = int(min_max_years[0]) if min_max_years[0] else current_year
+    db_max_year = int(min_max_years[1]) if min_max_years[1] else current_year
+    
+    max_year = max(db_max_year + 2, current_year)
+    min_year = min(db_min_year - 2, max_year)
     
     # Create data for each year
     years_list = list(range(min_year, max_year + 1))
+
     yearly_hired_students = []
     
     for year in years_list:
@@ -182,23 +188,20 @@ def college_profile():
         raw_description = request.form['college-description']
         raw_address = request.form['college-address']
         raw_website = request.form['college-website']
-        raw_logo = request.form['college-logo']
-
+        
         college_name = sanitize_text(raw_college_name.strip())
         email = raw_email.strip()
         description = sanitize_text(raw_description.strip())
         address = sanitize_text(raw_address.strip())
         website = raw_website.strip()
-        logo = raw_logo.strip()
-
+        
         # ------------------------- NO CHANGE -------------------------
         if (
             college_name == colleges.college_name and
             email == colleges.email and
             description == colleges.description and
             address == colleges.address and
-            website == colleges.website and
-            logo == colleges.logo
+            website == colleges.website
         ):
             message = "No changes detected."
             message_type = "info"
@@ -263,40 +266,6 @@ def college_profile():
             message = "Address contains unsafe content!"
             message_type = "error"
 
-        # 6) Logo URL
-        if not message and logo:
-            if contains_script(logo):
-                message = "Logo URL contains unsafe content!"
-                message_type = "error"
-            elif re.search(r"\s", logo):
-                message = "Please enter only one logo URL."
-                message_type = "error"
-
-            elif not re.match(r"^https?", logo, re.IGNORECASE):
-                message = "Logo URL must start with http or https."
-                message_type = "error"
-
-            elif re.match(r"^(javascript|data)", logo, re.IGNORECASE):  # Can remove data check to allow data URLs for logos ->r"^(javascript)"
-                message = "Logo URL scheme is not allowed."
-                message_type = "error"
-
-            elif logo and not url_seems_reachable(logo):
-                message = "Logo URL could not be reached. Please check the link."
-                message_type = "error"
-
-            else:
-                if not re.match(
-                    r"^https?://[A-Za-z0-9.-]+\.[A-Za-z]{2,}(/.*)?$",
-                    logo,
-                    re.IGNORECASE,
-                ):
-                    message = "Logo URL must contain a valid domain (e.g., http://example.com)."
-                    message_type = "error"
-
-                elif re.search(r"\.(html|htm|php|asp|jsp)(\?.*)?$", logo, re.IGNORECASE):
-                    message = "The URL looks like a webpage. Please provide an image address."
-                    message_type = "error"
-
         # ------------------------- SAVE -------------------------
         if not message:
             old_name = colleges.college_name
@@ -307,7 +276,6 @@ def college_profile():
             colleges.email = email
             colleges.address = address
             colleges.website = website
-            colleges.logo = logo
 
             if name_changed:
                 try:
@@ -347,6 +315,49 @@ def college_profile():
         message_type=message_type
     )
 
+from flask import current_app
+import os, uuid
+
+@college_blueprint.route('/upload_college_logo', methods=['POST'])
+@secure_route
+def upload_college_logo():
+    login_id = session.get('login_id')
+    college = College.query.filter_by(login_id=login_id).first()
+    
+    if not college:
+        flash('College not found.', 'error')
+        return redirect(url_for('auth.login'))
+
+    if 'college_logo' in request.files:
+        file = request.files['college_logo']
+        
+        if file and file.filename != '':
+            allowed_extensions = {'png', 'jpg', 'jpeg', 'gif'}
+            def allowed_file(filename):
+                return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
+            
+            if allowed_file(file.filename):
+                ext = file.filename.rsplit('.', 1)[1].lower()
+                unique_filename = f"logo_{college.id}_{uuid.uuid4().hex[:8]}.{ext}"
+                
+                logos_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'college_logos')
+                if not os.path.exists(logos_dir):
+                    os.makedirs(logos_dir)
+                    
+                file_path = os.path.join(logos_dir, unique_filename)
+                file.save(file_path)
+                
+                # Update database
+                college.logo = f"/static/uploads/college_logos/{unique_filename}"
+                db.session.commit()
+                flash('College logo updated successfully!', 'success')
+            else:
+                flash('Invalid image format. Only JPG, PNG, and GIF are allowed.', 'danger')
+        else:
+            flash('No file selected.', 'danger')
+            
+    return redirect(url_for('college.college_profile'))
+
 @college_blueprint.route('/college_studenttracking')
 @secure_route
 def college_studenttracking():
@@ -359,25 +370,81 @@ def college_studenttracking():
     # Get college profile
     college_profile = College.query.filter_by(login_id=login_id).first()
     
+    page = request.args.get('page', 1, type=int)
+    per_page = 5
+    
+    search_query = request.args.get('search_query', '').strip()
+    selected_status = request.args.getlist('status')
+    
     # Query to join the tables and filter by the logged-in college's login_id
-    student_activity = db.session.query(
+    query = db.session.query(
+        User.id.label('user_id'),          # <--- ADDED THIS LINE!
         User.name.label('student_name'),
         User.is_banned,
         Company.company_name.label('company_name'),
-        Job.title.label('job_title'),  # Added job title
+        Job.title.label('job_title'),  
         JobApplication.status.label('job_application_status')
     ).join(Couponuser, Couponuser.user_id == User.id)\
      .join(Coupon, Coupon.id == Couponuser.coupon_id)\
      .join(JobApplication, JobApplication.user_id == User.id)\
      .join(Job, Job.job_id == JobApplication.job_id)\
      .join(Company, Company.login_id == Job.created_by)\
-     .filter(Coupon.college_id == college_profile.id)\
-     .order_by(JobApplication.status_updated_at.desc())\
-     .all()
+     .filter(Coupon.college_id == college_profile.id)
 
+    # Apply Status Filters
+    if selected_status:
+        query = query.filter(JobApplication.status.in_(selected_status))
+        
+    # Apply Search Filters across multiple columns
+    if search_query:
+        query = query.filter(
+            or_(
+                User.name.ilike(f'%{search_query}%'),
+                Company.company_name.ilike(f'%{search_query}%'),
+                Job.title.ilike(f'%{search_query}%')
+            )
+        )
+        
+    # Order and paginate the final results
+    pagination = query.order_by(JobApplication.date_applied.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    student_activity = pagination.items
+
+    # Fixed the return statement by removing the incomplete "user_id=" 
     return render_template('/college/student_tracking.html',
         student_activity=student_activity,
-        college_profile=college_profile)
+        college_profile=college_profile,
+        pagination=pagination,
+        page=page,
+        search_query=search_query,
+        selected_status=selected_status)
+
+@college_blueprint.route('/api/student_profile/<uuid:user_id>', methods=['GET'])
+@secure_route
+def api_student_profile(user_id):
+    if session.get('role') != 'college':
+        return jsonify({"error": "Unauthorized"}), 403
+        
+    user = User.query.get_or_404(user_id)
+    certifications = Certification.query.filter_by(user_id=user_id).all()
+    resume = ResumeCertification.query.filter_by(user_id=user_id).order_by(ResumeCertification.uploaded_at.desc()).first()
+    
+    profile_data = {
+        "name": user.name,
+        "email": user.email,
+        "phone": user.phone if user.phone else "Not provided",
+        "age": user.age if user.age else "Not provided",
+        "about_me": user.about_me if user.about_me else "No description provided.",
+        "profile_picture": user.profile_picture if user.profile_picture else "/static/default_avatar.png",
+        "resume_url": resume.resume_path if resume else None,
+        "skills": [
+            {
+                "id": str(cert.id),
+                "name": cert.certification_name,
+                "is_verified": cert.verification_status
+            } for cert in certifications
+        ]
+    }
+    return jsonify(profile_data)
 
 @college_blueprint.route('/college_referall')
 @secure_route
@@ -401,34 +468,15 @@ def college_collab():
         return redirect(url_for('auth.login'))
         
     college_id = college_profile.id  # Get college_id from the profile for related queries
-
-    # print("DEBUG college_collab: college_id =", college_id)
-    # print("DEBUG college_collab: user_id =", login_id)
     
-    # Get total students registered through college coupons
+    # UPDATED: Get total distinct students who have APPLIED to at least one job
     total_students = db.session.query(func.count(distinct(User.id)))\
+        .join(JobApplication, JobApplication.user_id == User.id)\
         .join(Couponuser, Couponuser.user_id == User.id)\
         .join(Coupon, Coupon.id == Couponuser.coupon_id)\
         .filter(Coupon.college_id == college_id)\
         .scalar() or 0
-    
-    # print("DEBUG college_collab: total_students =", total_students)
 
-    # Comment out the partnered companies query but keep for future reference
-    """
-    # Get partnered companies (all companies that have hired any student from this college)
-    partnered_companies = db.session.query(Company)\
-        .join(Job, Job.created_by == Company.login_id)\
-        .join(JobApplication, JobApplication.job_id == Job.job_id)\
-        .join(User, User.id == JobApplication.user_id)\
-        .join(Couponuser, Couponuser.user_id == User.id)\
-        .join(Coupon, Coupon.id == Couponuser.coupon_id)\
-        .filter(
-            Coupon.college_id == college_id,
-            JobApplication.status == 'Hired'
-        ).distinct().all()
-    """
-    # Instead of querying, just set partnered_companies to None
     partnered_companies = []
 
     # Count distinct placed students from this college
@@ -441,7 +489,7 @@ def college_collab():
             JobApplication.status == 'Hired'
         ).scalar() or 0
 
-    # Calculate placement percentage
+    # Calculate placement percentage based on APPLIED students
     placed_percentage = 0
     if total_students > 0:
         placed_percentage = round((placed_students / total_students) * 100, 2)
@@ -559,9 +607,14 @@ def college_endorsement():
     if not college_profile:
         flash("College profile not found.", "error")
         return redirect(url_for('auth.login'))
+    
+    page = request.args.get('page', 1, type=int)
+    per_page = 5
 
-    # Fetch the necessary data from the database - Fixed to use college_profile.id
-    coupon_users = db.session.query(
+    search_query = request.args.get('search_query', '').strip()
+
+    # Fetch the necessary data from the database
+    query = db.session.query(
         Coupon.code.label('coupon_code'),
         User.name.label('user_name'),
         User.is_banned,
@@ -571,14 +624,25 @@ def college_endorsement():
         Couponuser.created_at
     ).join(Couponuser, Couponuser.coupon_id == Coupon.id)\
     .join(User, Couponuser.user_id == User.id)\
-    .join(Certification, Certification.user_id == User.id)\
-    .filter(Coupon.college_id == college_profile.id)\
-    .distinct()\
-    .order_by(Couponuser.created_at.desc()) \
-    .all()
+    .filter(Coupon.college_id == college_profile.id)
+
+    if search_query:
+        query = query.filter(
+            or_(
+                User.name.ilike(f'%{search_query}%'),
+                Coupon.year.ilike(f'%{search_query}%')
+            )
+        )
+
+    pagination = query.order_by(Couponuser.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    coupon_users = pagination.items
+
     return render_template('/college/endorse.html', 
         coupon_users=coupon_users,
-        college_profile=college_profile)
+        college_profile=college_profile,
+        pagination=pagination,
+        page=page,
+        search_query=search_query)
 
 # API endpoint to get user details for the modal
 @college_blueprint.route('/api/user_details/<user_id>')
@@ -639,6 +703,30 @@ def verify_certification(cert_id):
         certification.verification_status = True
         db.session.commit()
         return jsonify({"success": True, "message": "Certification verified successfully"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
+    
+# Endpoint to un-verify certification
+@college_blueprint.route('/unverify_certification/<cert_id>', methods=['POST'])
+@secure_route
+def unverify_certification(cert_id):
+    if session.get('role') != 'college':
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
+    
+    try:
+        import uuid
+        cert_uuid = uuid.UUID(cert_id)
+    except ValueError:
+        return jsonify({"success": False, "message": "Invalid certification ID format"}), 400
+    
+    certification = Certification.query.get_or_404(cert_uuid)
+    
+    try:
+        # Change status back to False
+        certification.verification_status = False
+        db.session.commit()
+        return jsonify({"success": True, "message": "Skill un-endorsed successfully"})
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
