@@ -5,7 +5,7 @@ import sqlite3
 from flask_cors import CORS
 from flask_login import LoginManager
 from config import Config
-from models import db, User, Job, Company, JobApplication, Login, Favorite, Communication, Notification, Couponuser, ResumeCertification, Certification
+from models import db, User, Job, Company, JobApplication, Login, Favorite, Communication, Notification, Couponuser, ResumeCertification, Certification, College
 from auth import auth_blueprint
 from user import user_blueprint
 from company import company_blueprint
@@ -22,6 +22,8 @@ from datetime import datetime
 import pytz
 import re
 import calendar
+from utils_url import url_seems_reachable
+from sqlalchemy import or_, func
 
 app = Flask(__name__)
 
@@ -135,6 +137,10 @@ def before_request_handler():
         elif role == 'company':
             company = Company.query.filter_by(login_id=login_id).first()
             if company and company.is_banned:
+                is_banned = True
+        elif role == 'college':
+            college = College.query.filter_by(login_id=login_id).first()
+            if college and college.is_banned:
                 is_banned = True
         
         if is_banned:
@@ -537,7 +543,7 @@ def create_company():
     data = request.json or {}
 
     try:
-        raw_company_name = (data.get('company_name') or '').strip()
+        raw_username = (data.get('username') or '').strip()
         raw_email = (data.get('email') or '').strip()
         raw_address = (data.get('address') or '').strip()
         raw_website = (data.get('website') or '').strip()
@@ -552,7 +558,7 @@ def create_company():
         logo = raw_logo.strip() if raw_logo else ''
 
         # ---- Reject raw dangerous content (like company_post_new_job) ----
-        dangerous_raw_fields = [raw_company_name, raw_address, raw_description]
+        dangerous_raw_fields = [raw_username, raw_address, raw_description]
         if any(
             re.search(r'<\s*script[\s\S]*?>[\s\S]*?<\s*/\s*script\s*>', f, re.IGNORECASE) or
             re.search(r'(javascript\s*:|data\s*:)', f, re.IGNORECASE)
@@ -563,18 +569,18 @@ def create_company():
             }), 400
 
         # ---- Sanitise text ----
-        company_name = sanitize_text(raw_company_name)
+        username = sanitize_text(raw_username)
         address = sanitize_text(raw_address)
         description = sanitize_text(raw_description)
 
         # ---- Basic required checks ----
-        if not company_name:
+        if not username:
             return jsonify({
-                "message": "Company Name is required."
+                "message": "Username is required."
             }), 400
 
-        if len(company_name) < 3 or len(company_name) > 100:
-            return jsonify({"message": "Company Name must be between 3-100 characters!"}), 400
+        if len(username) < 3 or len(username) > 30:
+            return jsonify({"message": "Username must be between 3-30 characters!"}), 400
 
         if not raw_email:
             return jsonify({"message": "Email address is required."}), 400
@@ -634,7 +640,7 @@ def create_company():
 
         # ---- Create Login entry ----
         new_login = Login(
-            username=company_name,
+            username=username,
             role='company'
         )
         new_login.set_password(password)
@@ -644,7 +650,7 @@ def create_company():
         # --- create Company record with correct column names ---
         new_company = Company(
             login_id=new_login.id,
-            company_name=company_name,
+            company_name=username,
             email=raw_email,
             address=address,
             website=website,
