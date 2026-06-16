@@ -291,6 +291,7 @@ const CustomLoginPage = () => {
             await login({ username: username.trim(), password });
         } catch (error) {
             notify('Invalid credentials', { type: 'error' });
+            setPassword('');
         }
     };
 
@@ -397,8 +398,6 @@ const CustomLoginPage = () => {
         </ThemeProvider>
     );
 };
-
-
 
 
 const customDataProvider = {
@@ -710,6 +709,10 @@ const CompanyBulkActionButtons = () => (
 
 const JobBulkActionButtons = () => (
     <CustomBulkDeleteButton resourceName="jobs" />
+);
+
+const CollegeBulkActionButtons = () => (
+    <CustomBulkDeleteButton resourceName="colleges" />
 );
 
 const metricIcons = {
@@ -1210,13 +1213,17 @@ const ClickableNameField = ({ source, resource, maxChars = 25 }) => {
     const dialogTitle =
         resource === 'users'
             ? `${record.name} - Job Seeker Details`
-            : `${record.company_name} - Company Details`;
+            : resource === 'companies'
+            ? `${record.company_name} - Company Details`
+            : `${record.college_name} - College Details`;
 
     let fieldsOrder;
     if (resource === 'users') {
         fieldsOrder = ['age', 'email', 'phone', 'college_name', 'about_me', 'is_banned', 'created_at'];
     } else if (resource === 'companies') {
-        fieldsOrder = ['email', 'address', 'industry', 'description', 'website', 'is_banned', 'created_at'];
+        fieldsOrder = ['username', 'email', 'address', 'industry', 'description', 'website', 'is_banned', 'created_at'];
+    } else if (resource === 'colleges') {
+        fieldsOrder = ['username', 'email', 'address', 'description', 'website', 'is_banned', 'created_at'];
     }
 
     const content = (
@@ -1294,6 +1301,11 @@ const FilterDropdown = () => {
                     { label: "Company Name", value: "company_name:", icon: <BusinessIcon /> },
                     { label: "Email", value: "email:", icon: <EmailIcon /> },
                     { label: "Industry", value: "industry:", icon: <FactoryIcon /> }
+                ];
+            case 'colleges':
+                return [
+                    { label: "College Name", value: "college_name:", icon: <SchoolIcon /> },
+                    { label: "Email", value: "email:", icon: <EmailIcon /> }
                 ];
             case 'jobs':
                 return [
@@ -1438,6 +1450,8 @@ const createExporter = (resourceName) => (data) => {
                 return 'companies';
             case 'jobs':
                 return 'jobs';
+            case 'colleges': 
+                return 'colleges';
             default:
                 return resource;
         }
@@ -1445,8 +1459,6 @@ const createExporter = (resourceName) => (data) => {
 
     // Define field mapping based on resource
     const getFieldsForResource = (resource, sampleRecord) => {
-        // console.log('Sample record keys:', Object.keys(sampleRecord));
-
         switch(resource) {
             case 'users':
                 return {
@@ -1475,6 +1487,13 @@ const createExporter = (resourceName) => (data) => {
                     'Total Vacancy': 'total_vacancy',
                     'Filled Vacancy': 'filled_vacancy',
                     'Status': 'status'
+                };
+            case 'colleges':
+                return { 
+                    'S.No': (record, index) => index + 1, 
+                    'College Name': 'college_name', 
+                    'Email': 'email', 
+                    'Banned': 'is_banned' 
                 };
             default:
                 return {};
@@ -1518,64 +1537,41 @@ const AddCompanyDialog = ({ open, handleClose }) => {
     const dataProvider = useDataProvider();
     const theme = useTheme();
 
-    const [formData, setFormData] = useState({ company_name: '', email: '', address: '', website: '', logo: '', description: '', industry: '', password: '' });
+    const [formData, setFormData] = useState({ username: '', email: '', address: '', website: '', logo: '', description: '', industry: '', password: '' });
+    const [logoFile, setLogoFile] = useState(null);
+
+    // Add specific states for ALL potential field errors
     const [passwordError, setPasswordError] = useState('');
     const [emailError, setEmailError] = useState('');
-    const [companyNameError, setCompanyNameError] = useState('');
+    const [emailConfirmOpen, setEmailConfirmOpen] = useState(false);
+    const [usernameError, setUsernameError] = useState('');
+    const [addressError, setAddressError] = useState('');
+    const [websiteError, setWebsiteError] = useState('');
+    const [logoError, setLogoError] = useState('');
+    const [descriptionError, setDescriptionError] = useState('');
+    
     const [isCheckingCompany, setIsCheckingCompany] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
-
-    const [isVerifyingWebsite, setIsVerifyingWebsite] = useState(false);
-    const [isVerifyingLogo, setIsVerifyingLogo] = useState(false);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData({ ...formData, [name]: value });
+        
+        // Clear errors automatically as the user types to fix the problem
         if (name === 'password') setPasswordError('');
         if (name === 'email') setEmailError('');
-        if (name === 'company_name') setCompanyNameError('');
-    };
-
-    const validatePassword = (password) => {
-        if (password.includes(' ')) return 'Password cannot contain spaces.';
-        if (!/^[a-zA-Z0-9@#$%^&+=]+$/.test(password)) return 'Password can only contain letters, numbers, and @#$%^&+=';
-        if (password.length < 8) return 'Password must be at least 8 characters long.';
-        return '';
-    };
-
-    const validateEmail = (email) => {
-        if (!email) return 'Email address is required.';
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Please enter a valid email address.';
-        return '';
-    };
-
-    const validateCompanyName = (companyName) => {
-        if (!companyName) return 'Company Name is required.';
-        return '';
-    };
-
-    const checkCompanyNameExists = async (companyName) => {
-        try {
-            const { data } = await dataProvider.getList('companies', {
-                pagination: { page: 1, perPage: 1000 },
-                sort: { field: 'id', order: 'ASC' },
-                filter: {},
-            });
-            return data.some(
-                (company) =>
-                    (company.company_name || '').toLowerCase() === companyName.toLowerCase()
-            );
-        } catch (error) {
-            console.error('Error checking company name:', error);
-            return false; // don't block creation if check fails
-        }
+        if (name === 'username') setUsernameError('');
+        if (name === 'address') setAddressError('');
+        if (name === 'website') setWebsiteError('');
+        if (name === 'logo') setLogoError('');
+        if (name === 'description') setDescriptionError('');
     };
     
     const resetForm = () => {
-        setFormData({ company_name: '', email: '', address: '', website: '', logo: '', description: '', industry: '', password: '' });
+        setFormData({ username: '', email: '', address: '', website: '', logo: '', description: '', industry: '', password: '' });
         setPasswordError('');
         setEmailError('');
-        setCompanyNameError('');
+        setUsernameError('');
     };
     
     const handleDialogClose = () => {
@@ -1583,79 +1579,171 @@ const AddCompanyDialog = ({ open, handleClose }) => {
         handleClose();
     };
 
-    const handleSubmit = async () => {
-        const passwordValidationMessage = validatePassword(formData.password);
-        const emailValidationMessage = validateEmail(formData.email);
-        const companyNameValidationMessage = validateCompanyName(formData.company_name);
+    // --- FRONTEND VALIDATION HELPERS ---
+    const validateUsername = (name) => {
+        if (!name || !name.trim()) return "Username is required.";
+        if (name.length < 3 || name.length > 30) return "Username must be between 3-30 characters.";
+        if (/\s/.test(name)) return "Username cannot contain spaces.";
+        if (/^[_.]|[_.]$/.test(name)) return "Username cannot start or end with an underscore or period.";
+        if (!/^[a-zA-Z0-9_.]+$/.test(name)) return "Username can only contain letters, numbers, underscores, and periods.";
+        return "";
+    };
 
-        if (passwordValidationMessage) setPasswordError(passwordValidationMessage);
-        if (emailValidationMessage) setEmailError(emailValidationMessage);
-        if (companyNameValidationMessage) setCompanyNameError(companyNameValidationMessage);
+    const validateEmail = (email) => {
+        if (!email || !email.trim()) return "Email address is required.";
+        if (email.length > 90) return "Email address is too long.";
+        if (email.includes('..') || email.startsWith('.') || email.endsWith('.')) return "Email format is invalid.";
+        
+        const regex1 = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+        const regex2 = /^[a-zA-Z0-9][a-zA-Z0-9._%+-]{0,63}@[a-zA-Z0-9][a-zA-Z0-9.-]{0,253}\.[a-zA-Z]{2,}$/;
+        if (!regex1.test(email) || !regex2.test(email)) return "Invalid email format!";
+        return "";
+    };
 
-        if (passwordValidationMessage || emailValidationMessage || companyNameValidationMessage) {
-            return;
+    const validatePassword = (password) => {
+        if (!password) return "Password is required.";
+        if (password.includes(' ')) return "Password cannot contain spaces.";
+        if (password.length < 8) return "Password must be at least 8 characters long.";
+        if (password.length > 30) return "Password length is too long.";
+        if (!/^[a-zA-Z0-9@#$%^&+=]+$/.test(password)) {
+            return "Password can only contain letters, numbers, and special characters @#$%^&+=";
         }
+        return "";
+    };
 
-        // === extra script / URL checks you already added go here ===
+    const validateText = (text, maxLength, fieldName) => {
+        if (!text) return "";
+        if (text.length > maxLength) return `${fieldName} must be under ${maxLength} characters!`;
+        if (/<\s*script[\s\S]*?>[\s\S]*?<\s*\/\s*script\s*>/i.test(text) || /(javascript\s*:|data\s*:)/i.test(text)) {
+            return "Dangerous content is not allowed.";
+        }
+        return "";
+    };
+
+    const validateURL = (url, fieldName) => {
+        if (!url) return "";
+        if (/\s/.test(url)) return `Please enter only one ${fieldName} URL.`;
+        if (!/^https?/i.test(url)) return `${fieldName} URL must start with http or https.`;
+        if (/^(javascript|data)/i.test(url)) return `${fieldName} URL scheme is not allowed.`;
+        return "";
+    };
+
+    const handleSubmit = async () => {
+        // 1. Run validations (Logo validation removed)
+        const usernameValidation = validateUsername(formData.username);
+        const emailValidation = validateEmail(formData.email);
+        const passwordValidation = validatePassword(formData.password);
+        const addressValidation = validateText(formData.address, 500, "Address");
+        const descriptionValidation = validateText(formData.description, 1000, "Description");
+        const websiteValidation = validateURL(formData.website, "Website");
+
+        setUsernameError(usernameValidation);
+        setEmailError(emailValidation);
+        setPasswordError(passwordValidation);
+        setAddressError(addressValidation);
+        setDescriptionError(descriptionValidation);
+        setWebsiteError(websiteValidation);
+
+        if (usernameValidation || emailValidation || passwordValidation || 
+            addressValidation || descriptionValidation || websiteValidation) {
+            return; 
+        }
 
         setIsCheckingCompany(true);
-        try {
-            const companyExists = await checkCompanyNameExists(formData.company_name);
-            if (companyExists) {
-                setCompanyNameError('A company with this name already exists.');
-                setIsCheckingCompany(false);
-                return;
-            }
-        } catch (error) {
-            setIsCheckingCompany(false);
-            notify(error.message || 'Unable to verify company name. Please try again.', { type: 'error' });
-            return;
+
+        const submitData = new FormData();
+        Object.keys(formData).forEach(key => {
+            if (key !== 'logo') submitData.append(key, formData[key]);
+        });
+        submitData.append('is_banned', false);
+        if (logoFile) {
+            submitData.append('logo', logoFile);
         }
-
-        //setIsCheckingCompany(false);
-
-        if (formData.website) setIsVerifyingWebsite(true);
-        if (formData.logo) setIsVerifyingLogo(true);
 
         try {
             const response = await fetch(`${API_BASE_URL}/companies`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
                 credentials: 'include',
-                body: JSON.stringify({
-                    ...formData,
-                    // Backend expects snake_case:
-                    is_banned: false,
-                }),
+                body: submitData, // Send FormData
             });
 
             const json = await response.json().catch(() => ({}));
 
             if (!response.ok) {
-                // This path runs for all validation failures and server errors
-                const msg =
-                    json.message ||
-                    json.error ||
-                    'Failed to add company. Please check the form and try again.';
-                notify(msg, { type: 'error' });
+                if (json.duplicate_email_warning) {
+                    setEmailConfirmOpen(true);
+                    return; 
+                }
+                if (json.field) {
+                    switch (json.field) {
+                        case 'username': setUsernameError(json.message); break;
+                        case 'email': setEmailError(json.message); break;
+                        case 'password': setPasswordError(json.message); break;
+                        case 'address': setAddressError(json.message); break;
+                        case 'website': setWebsiteError(json.message); break;
+                        case 'logo': setLogoError(json.message); break;
+                        case 'description': setDescriptionError(json.message); break;
+                        default: notify(json.message, { type: 'error' });
+                    }
+                } else {
+                    notify(json.message || 'Failed to add company.', { type: 'error' });
+                }
                 return;
             }
 
-            // Only reached on actual 2xx/201 success
             notify(json.message || 'Company added successfully!', { type: 'success' });
             refresh();
             handleDialogClose();
         } catch (error) {
-            notify(
-                error?.message || 'Network error while adding company. Please try again.',
-                { type: 'error' }
-            );
+            notify('Network error. Please try again.', { type: 'error' });
         } finally {
             setIsCheckingCompany(false);
-            setIsVerifyingWebsite(false);
-            setIsVerifyingLogo(false);
+        }
+    };
+
+    // Triggered if Admin clicks "No" on the duplicate email popup
+    const handleCancelEmail = () => {
+        setEmailConfirmOpen(false);
+        setFormData({ ...formData, email: '' }); // Clear the email field
+        setEmailError(''); // Clear any red error text
+    };
+
+    // Triggered if Admin clicks "Yes" on the duplicate email popup
+    const handleForceSubmit = async () => {
+        setEmailConfirmOpen(false);
+        setIsCheckingCompany(true);
+
+        const submitData = new FormData();
+        Object.keys(formData).forEach(key => {
+            if (key !== 'logo') submitData.append(key, formData[key]);
+        });
+        submitData.append('is_banned', false);
+        submitData.append('force_email', true);
+        if (logoFile) {
+            submitData.append('logo', logoFile);
+        }
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/companies`, {
+                method: 'POST',
+                credentials: 'include',
+                body: submitData,
+            });
+
+            const json = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                notify(json.message || 'Failed to add company.', { type: 'error' });
+                return;
+            }
+
+            notify(json.message || 'Company added successfully!', { type: 'success' });
+            refresh();
+            handleDialogClose();
+        } catch (error) {
+            notify('Network error while adding company. Please try again.', { type: 'error' });
+        } finally {
+            setIsCheckingCompany(false);
         }
     };
 
@@ -1696,15 +1784,15 @@ const AddCompanyDialog = ({ open, handleClose }) => {
                     }}>
                         <MuiTextField 
                             autoFocus 
-                            name="company_name" 
-                            label="Company Name" 
+                            name="username" 
+                            label="Username" 
                             fullWidth 
                             variant="outlined" 
-                            value={formData.company_name} 
+                            value={formData.username} 
                             onChange={handleChange} 
                             required 
-                            error={!!companyNameError} 
-                            helperText={companyNameError} 
+                            error={!!usernameError} 
+                            helperText={usernameError} 
                         />
                         <MuiTextField 
                             name="email" 
@@ -1789,6 +1877,8 @@ const AddCompanyDialog = ({ open, handleClose }) => {
                             variant="outlined" 
                             value={formData.address} 
                             onChange={handleChange} 
+                            error={!!addressError}
+                            helperText={addressError}
                         />
                         
                         <Box sx={{
@@ -1804,15 +1894,20 @@ const AddCompanyDialog = ({ open, handleClose }) => {
                                 variant="outlined" 
                                 value={formData.website} 
                                 onChange={handleChange} 
+                                error={!!websiteError}
+                                helperText={websiteError}
                             />
                             <MuiTextField 
                                 name="logo" 
-                                label="Logo URL" 
-                                type="url" 
+                                label="Upload Logo (Optional)" 
+                                type="file" 
                                 fullWidth 
                                 variant="outlined" 
-                                value={formData.logo} 
-                                onChange={handleChange} 
+                                onChange={(e) => setLogoFile(e.target.files[0])} 
+                                InputLabelProps={{ shrink: true }}
+                                inputProps={{ accept: "image/*" }}
+                                error={!!logoError}
+                                helperText={logoError}
                             />
                         </Box>
                         
@@ -1825,6 +1920,8 @@ const AddCompanyDialog = ({ open, handleClose }) => {
                             variant="outlined" 
                             value={formData.description} 
                             onChange={handleChange} 
+                            error={!!descriptionError}
+                            helperText={descriptionError}
                         />
                     </Box>
                 </Box>
@@ -1849,6 +1946,40 @@ const AddCompanyDialog = ({ open, handleClose }) => {
                     {isCheckingCompany ? 'Checking...' : 'Add Company'}
                 </Button>
             </DialogActions>
+            {/* DUPLICATE EMAIL CONFIRMATION DIALOG */}
+            <Dialog 
+                open={emailConfirmOpen} 
+                onClose={handleCancelEmail}
+                PaperProps={{
+                    sx: { borderRadius: 2, padding: 1 }
+                }}
+            >
+                <DialogTitle sx={{ color: 'error.main', fontWeight: 'bold' }}>
+                    Duplicate Email Detected
+                </DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        This email is already associated with another company. Do you want to continue?
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions sx={{ padding: 2 }}>
+                    <Button 
+                        onClick={handleCancelEmail} 
+                        color="inherit" 
+                        variant="outlined"
+                    >
+                        No
+                    </Button>
+                    <Button 
+                        onClick={handleForceSubmit} 
+                        color="error" 
+                        variant="contained" 
+                        autoFocus
+                    >
+                        Yes, Continue
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Dialog>
     );
 };
@@ -1913,6 +2044,7 @@ const StyledDatagrid = ({ children, ...props }) => {
     return (
         <>
             <Datagrid
+                rowClick={false}
                 {...props}
                 sx={{
                     '& .RaDatagrid-table': {
@@ -1946,7 +2078,6 @@ const StyledDatagrid = ({ children, ...props }) => {
                         bgcolor: 'action.hover',
                     },
                 }}
-                rowClick="edit"
             >
                 {children}
             </Datagrid>
@@ -2173,6 +2304,7 @@ const ScopedSearchInput = (props) => {
 // =============================================================================
 const UserList = (props) => (
     <List 
+        storeKey={false}
         actions={<ListActions />}
         filters={[
             <ScopedSearchInput
@@ -2205,6 +2337,7 @@ const UserList = (props) => (
 
 const CompanyList = (props) => (
     <List 
+        storeKey={false}
         actions={<ListActions resource="companies" />}
         filters={[
             <ScopedSearchInput 
@@ -2237,6 +2370,7 @@ const CompanyList = (props) => (
 
 const JobList = (props) => (
     <List 
+        storeKey={false}
         actions={<ListActions />}
         filters={[
             <ScopedSearchInput 
@@ -2287,6 +2421,37 @@ const JobList = (props) => (
     </List>
 );
 
+const CollegeList = (props) => (
+    <List 
+        actions={<ListActions resource="colleges" />}
+        filters={[
+            <ScopedSearchInput 
+                source="q" 
+                alwaysOn 
+                placeholder="Search colleges..." 
+                sx={{ maxWidth: 400 }}
+            />
+        ]}
+        sort={{ field: 'created_at', order: 'DESC' }}
+        empty={false}
+        {...props}
+    >
+        <StyledDatagrid bulkActionButtons={<CollegeBulkActionButtons />} rowClick={false}>
+            <FunctionField
+                label="College Name"
+                sortBy="college_name"
+                render={() => <ClickableNameField source="college_name" resource="colleges" maxChars={25} />}
+            />
+            <TruncatedTextField source="email" maxChars={30} />
+            <FunctionField
+                label="Ban Status"
+                sortable={false}
+                render={(record) => <BanToggle record={record} resource="colleges" />}
+            />
+        </StyledDatagrid>
+    </List>
+);
+
 /* <<< DEFINE A SINGLE LIGHT THEME FOR THE ENTIRE APP >>>
 const lightTheme = {
     ...defaultTheme,
@@ -2324,6 +2489,12 @@ const App = () => (
             name="jobs" 
             list={JobList} 
             icon={WorkIcon} 
+        />
+        <Resource 
+            name="colleges"
+            list={CollegeList} 
+            icon={SchoolIcon} 
+            options={{ label: 'Colleges' }} 
         />
     </Admin>
 );
