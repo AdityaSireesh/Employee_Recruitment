@@ -9,6 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
+    <div id="popup-message" class="popup"></div> 
     <header>
         <div class="menu-toggle">
             <i class="fas fa-bars"></i>
@@ -108,6 +109,24 @@
         </div>
     </main>
     <script>
+        function showPopup(message, type) {
+            if (!message) return; // Don't show popup if message is empty
+            var popup = document.getElementById("popup-message");
+            popup.innerHTML = message;
+            popup.className = "popup " + type;
+            popup.style.display = "block";
+            setTimeout(() => { popup.style.display = "none"; }, 3000);
+        }
+
+        // Display flash messages as popups
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    showPopup({{ message|tojson }}, {{ category|tojson }});
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
         window.addEventListener('click', function(event) {
             const dropdown = document.querySelector('.profile-dropdown');
             const dropdownBtn = document.querySelector('.profile-icon-btn');
