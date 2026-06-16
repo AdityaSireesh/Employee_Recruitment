@@ -10,11 +10,12 @@
     <style>
         /* Hide all candidate rows initially */
         #candidates-table tbody tr.application-row {
-            display: none;
+            /* display: none; */ /* Disabled so rows load instantly via backend */
         }
     </style>
 </head>
 <body>
+    <div id="popup-message" class="popup"></div> 
     <header>
         <div class="menu-toggle">
             <i class="fas fa-bars"></i>
@@ -81,7 +82,7 @@
     
                 <!-- Search Bar -->
                 <div class="search-container">
-                    <input type="text" id="search-input" placeholder="Search candidates..." style="font-family: monospace;font-size: 14.5px;">
+                    <input type="text" id="search-input" placeholder="Search..." value="{{ request.args.get('search_query', '') }}" style="font-family: monospace;font-size: 14.5px;">
                     <i class="fas fa-search search-icon"></i>
                 </div>
             </div>
@@ -128,9 +129,9 @@
                 
                 <!-- Pagination for Candidates -->
                 <div class="pagination" id="candidates-pagination">
-                    <button id="candidates-prev-page" disabled>&laquo; Previous</button>
-                    <span id="page-info">Page 1 of 0</span>
-                    <button id="candidates-next-page" disabled>Next &raquo;</button>
+                    <button id="candidates-prev-page" {% if not pagination.has_prev %}disabled{% endif %}>&laquo; Previous</button>
+                    <span id="page-info">Page {{ pagination.page }} of {{ pagination.pages }}</span>
+                    <button id="candidates-next-page" {% if not pagination.has_next %}disabled{% endif %}>Next &raquo;</button>
                 </div>
             </div>
     
@@ -153,6 +154,7 @@
                     <form id="modal-message-form" action="{{ url_for('company.company_hiring_communication') }}" method="POST">
                         <input type="hidden" id="recipient-id" name="recipient_id">
                         <input type="hidden" id="recipient-type" name="recipient_type">
+                        <input type="hidden" name="page" value="{{ page }}">
                         
                         <h4>New Message</h4>
                         <div class="message-input-container">
@@ -175,6 +177,24 @@
     </main>
 
     <script>
+            function showPopup(message, type) {
+            if (!message) return; // Don't show popup if message is empty
+            var popup = document.getElementById("popup-message");
+            popup.innerHTML = message;
+            popup.className = "popup " + type;
+            popup.style.display = "block";
+            setTimeout(() => { popup.style.display = "none"; }, 3000);
+        }
+
+        // Display flash messages as popups
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    showPopup({{ message|tojson }}, {{ category|tojson }});
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
         window.addEventListener('click', function(event) {
             const dropdown = document.querySelector('.profile-dropdown');
             const dropdownBtn = document.querySelector('.profile-icon-btn');
@@ -195,7 +215,7 @@
         });
 
         // Variables for candidate pagination
-        let candidatesCurrentPage = 1;
+        let candidatesCurrentPage = {{ pagination.page }};
         const rowsPerPage = 5;
         let candidatesFilteredRows = [];
 
@@ -268,119 +288,62 @@
         });
 
         // Live search functionality
-        document.getElementById('search-input').addEventListener('keyup', function() {
-            const searchText = this.value.toLowerCase();
-            filterCandidateTableBySearch(searchText);
+        document.getElementById('search-input').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const searchText = this.value.trim();
+                filterCandidateTableBySearch(searchText);
+            }
         });
 
         // Filter candidates table by search text
         function filterCandidateTableBySearch(searchText) {
-            // Correctly select only the data rows
-            const rows = document.querySelectorAll('#candidates-table tbody tr.application-row');
-            candidatesFilteredRows = [];
+            const statusFilters = Array.from(document.querySelectorAll('.status-filter:checked')).map(el => el.value);
+            const jobFilters = Array.from(document.querySelectorAll('.job-filter:checked')).map(el => el.value);
             
-            rows.forEach(row => {
-                const name = row.querySelector('td:first-child').textContent.toLowerCase();
-                const job = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
-                const status = row.querySelector('td:nth-child(3)').textContent.toLowerCase();
-                
-                if (name.includes(searchText) || job.includes(searchText) || status.includes(searchText)) {
-                    row.dataset.visible = "true";
-                    candidatesFilteredRows.push(row);
-                } else {
-                    row.dataset.visible = "false";
-                }
-            });
+            const params = new URLSearchParams();
+            if (searchText) params.append('search_query', searchText);
+            statusFilters.forEach(status => params.append('status', status));
+            jobFilters.forEach(job => params.append('job_post', job));
             
-            // Show/hide no results message
-            document.getElementById('candidates-no-results-message').style.display = candidatesFilteredRows.length === 0 ? 'block' : 'none';
-            
-            // Hide the initial "no candidates" row if a search is active
-            const initialNoCandidatesRow = document.querySelector('#candidates-table tbody tr:not(.application-row)');
-            if(initialNoCandidatesRow) {
-                initialNoCandidatesRow.style.display = 'none';
-            }
-
-            showCandidatePage(1);
+            window.location.href = "{{ url_for('company.company_hiring_communication') }}?" + params.toString();
         }
 
         // Filter candidate table with checkboxes
         function filterCandidateTable(statusFilters, jobFilters) {
-            // Correctly select only the data rows
-            const rows = document.querySelectorAll('#candidates-table tbody tr.application-row');
-            candidatesFilteredRows = [];
+            const searchText = document.getElementById('search-input').value.trim();
             
-            rows.forEach(row => {
-                const status = row.getAttribute('data-status');
-                const job = row.getAttribute('data-job');
-                
-                const statusMatch = statusFilters.length === 0 || statusFilters.includes(status);
-                const jobMatch = jobFilters.length === 0 || jobFilters.includes(job);
-                
-                if (statusMatch && jobMatch) {
-                    row.dataset.visible = "true";
-                    candidatesFilteredRows.push(row);
-                } else {
-                    row.dataset.visible = "false";
-                }
-            });
-            
-            // Show/hide no results message
-            document.getElementById('candidates-no-results-message').style.display = candidatesFilteredRows.length === 0 ? 'block' : 'none';
+            const params = new URLSearchParams();
+            if (searchText) params.append('search_query', searchText);
+            statusFilters.forEach(status => params.append('status', status));
+            jobFilters.forEach(job => params.append('job_post', job));
 
-            // Hide the initial "no candidates" row if a filter is active
-            const initialNoCandidatesRow = document.querySelector('#candidates-table tbody tr:not(.application-row)');
-            if(initialNoCandidatesRow) {
-                initialNoCandidatesRow.style.display = 'none';
-            }
-
-            showCandidatePage(1);
+            window.location.href = "{{ url_for('company.company_hiring_communication') }}?" + params.toString();
         }
 
         // Update candidate pagination controls
         function updateCandidatePagination() {
-            const dataRowsCount = candidatesFilteredRows.length;
-            const totalPages = Math.ceil(dataRowsCount / rowsPerPage);
-
-            // If there are no rows, display "Page 0 of 0"
-            const displayPage = dataRowsCount === 0 ? 0 : candidatesCurrentPage;
-
-            document.getElementById('page-info').textContent = `Page ${displayPage} of ${totalPages}`;
-            
-            document.getElementById('candidates-prev-page').disabled = candidatesCurrentPage === 1 || dataRowsCount === 0;
-            document.getElementById('candidates-next-page').disabled = candidatesCurrentPage === totalPages || totalPages === 0;
+            // Function functionality handled natively by Jinja template
         }
 
         // Show specific page for candidates table
         function showCandidatePage(pageNum) {
-            candidatesCurrentPage = pageNum;
-            const start = (pageNum - 1) * rowsPerPage;
-            const end = start + rowsPerPage;
-            
-            // Hide all DATA rows first
-            const allDataRows = document.querySelectorAll('#candidates-table tbody tr.application-row');
-            allDataRows.forEach(row => row.style.display = 'none');
-            
-            // Show only the rows for the current page
-            for (let i = start; i < end && i < candidatesFilteredRows.length; i++) {
-                candidatesFilteredRows[i].style.display = 'table-row';
-            }
-            
-            updateCandidatePagination();
+            const url = new URL(window.location.href);
+            url.searchParams.set('page', pageNum);
+            window.location.href = url.toString();
         }
 
         // Pagination controls for candidates
         document.getElementById('candidates-prev-page').addEventListener('click', function() {
-            if (candidatesCurrentPage > 1) {
-                showCandidatePage(candidatesCurrentPage - 1);
-            }
+            {% if pagination.has_prev %}
+            showCandidatePage({{ pagination.prev_num }});
+            {% endif %}
         });
 
         document.getElementById('candidates-next-page').addEventListener('click', function() {
-            const totalPages = Math.ceil(candidatesFilteredRows.length / rowsPerPage);
-            if (candidatesCurrentPage < totalPages) {
-                showCandidatePage(candidatesCurrentPage + 1);
-            }
+            {% if pagination.has_next %}
+            showCandidatePage({{ pagination.next_num }});
+            {% endif %}
         });
 
         // Handle row click to open modal - Fixed version
@@ -521,7 +484,7 @@
             console.log(`Initialized with ${candidatesFilteredRows.length} candidate rows`);
             
             updateCandidatePagination();
-            showCandidatePage(1);
+
         });
 
         const messageHistoryData = {{ message_history|tojson }};
