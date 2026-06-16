@@ -204,6 +204,48 @@
       flex-wrap: wrap;
       gap: 10px;
     }
+    .activity .search-wrapper {
+      flex: 1;
+      min-width: 0;
+      position: relative;
+      margin-right: 15px;
+    }
+
+    .activity .search-bar {
+      width: 100%;
+      box-sizing: border-box;   /* Makes sure padding doesn't accidentally alter the size */
+      padding: 10px 45px 10px 15px;
+      font-size: 15px;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      outline: none;
+      background-color: #ffffff;
+      transition: all 0.2s ease;
+    }
+
+    .activity .search-bar:focus {
+      border-color: #0a9396;
+      box-shadow: 0 0 0 3px rgba(10, 147, 150, 0.15);
+    }
+
+    .activity .search-icon {
+      position: absolute;
+      right: 15px;
+      top: 50%;
+      transform: translateY(-50%); 
+      color: #a0aec0;
+      font-size: 16px;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .activity .search-filter-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
     .activity .search-bar {
       flex: 1;
       padding: 10px 15px;
