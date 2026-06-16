@@ -198,7 +198,7 @@
         <!-- Upload Resume Form -->
         <form action="{{ url_for('user.resume_certifications') }}" method="POST" enctype="multipart/form-data" class="my-4">
           <div class="mb-4">
-            <label for="resume" class="text-gray-700 font-medium">Upload Resume:</label>
+            <h3 class="text-xl font-semibold text-gray-800 mt-8 mb-3">Upload Resume:</h3>
             
             <div class="file-upload-container">
             <label for="resume" class="file-upload-label">
@@ -218,60 +218,35 @@
           </button>
         </form>
 
-        <!-- Skills/Certifications Section -->
-        <h3 class="text-xl font-semibold text-gray-800 mt-8 mb-3">Your Skills </h3>
-        <button id="add-certification-btn" class="btn btn-secondary my-3">
-          <i class="fas fa-plus-circle mr-2"></i> Add Skill
-        </button>
-        
-        <!-- Hidden Certification Form -->
-        <div id="certification-form-container" class="hidden bg-gray-50 p-5 rounded-lg border border-gray-200 mb-4 shadow-sm">
-          <form action="{{ url_for('user.resume_certifications') }}" method="POST">
-            <div class="mb-4">
-              <label for="certification_name" class="text-gray-700 font-medium">Skill Name:</label>
-              <input type="text" name="certification_name" id="certification_name" class="form-control mt-2" placeholder="Enter Skill Name" required>
-            </div>
-            <div class="flex justify-between flex-responsive">
-              <button type="submit" class="btn btn-primary">
-                <i class="fas fa-save mr-2"></i> Save Skill
-              </button>
-              <button type="button" id="cancel-btn" class="btn bg-gray-500 text-white hover:bg-gray-600">
-                <i class="fas fa-times mr-2"></i> Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-
         <!-- Display Uploaded Resumes -->
         <div class="file-list my-6">
           {% if resume_certifications %}
-            <h3 class="text-xl font-semibold text-gray-800 mb-3">Uploaded Resumes:</h3>
+            <h3 class="text-xl font-semibold text-gray-800 mb-3">Resume:</h3>
             <div class="certifications-container">
-              {% for resume_cert in resume_certifications %}
-                <div class="file-item certification-item {% if loop.first %}most-recent-resume{% endif %}">
-                  {% if loop.first %}
-                  <div class="most-recent-badge">Most Recent</div>
-                  {% endif %}
-                  <div class="flex justify-between items-center flex-wrap gap-2">
-                    <div>
-                      <i class="fas fa-file-pdf text-red-500 mr-2"></i>
-                      <strong>Resume:</strong>
-                      <a href="{{ url_for('static', filename=resume_cert.resume_path.split('static/')[1]) }}" target="_blank">
-                        {{ resume_cert.resume_path.split('/')[-1] }}
-                      </a>
-                    </div>
-                    <div>
-                      <form id="deleteResumeForm_{{ resume_cert.id }}" action="{{ url_for('user.delete_resume', resume_id=resume_cert.id) }}" 
-                            method="POST" style="display: inline;">
-                        <button type="button" class="action-btn delete-btn" 
-                                onclick="showDeleteModal('resume', '{{ resume_cert.resume_path.split('/')[-1] }}', 'deleteResumeForm_{{ resume_cert.id }}')">
-                          <i class="fas fa-trash mr-1"></i> Delete
-                        </button>
-                      </form>
-                    </div>
+              
+              {% set current_resume = resume_certifications[0] %}
+              
+              <div class="file-item certification-item">
+                <div class="flex justify-between items-center flex-wrap gap-2">
+                  <div>
+                    <i class="fas fa-file-pdf text-red-500 mr-2"></i>
+                    <strong>Resume:</strong>
+                    <a href="{{ url_for('static', filename=current_resume.resume_path.split('static/')[1]) }}" target="_blank">
+                      {{ current_resume.resume_path.split('/')[-1] }}
+                    </a>
+                  </div>
+                  <div>
+                    <form id="deleteResumeForm_{{ current_resume.id }}" action="{{ url_for('user.delete_resume', resume_id=current_resume.id) }}" 
+                          method="POST" style="display: inline;">
+                      <button type="button" class="action-btn delete-btn" 
+                              onclick="showDeleteModal('resume', '{{ current_resume.resume_path.split('/')[-1] }}', 'deleteResumeForm_{{ current_resume.id }}')">
+                        <i class="fas fa-trash mr-1"></i> Delete
+                      </button>
+                    </form>
                   </div>
                 </div>
-              {% endfor %}
+              </div>
+
             </div>
           {% else %}
             <div class="text-center text-gray-600 my-8 p-6 bg-gray-50 rounded-lg border border-gray-200 shadow-sm">
@@ -285,7 +260,29 @@
         <!-- Display Added Skills -->
         <div class="file-list">
           {% if certifications %}
-            <h3 class="text-xl font-semibold text-gray-800 mb-3">Skills</h3>
+            <h3 class="text-xl font-semibold text-gray-800 mb-3">Your Skills:</h3>
+            <button id="add-certification-btn" class="btn btn-secondary my-3">
+              <i class="fas fa-plus-circle mr-2"></i> Add Skill
+            </button>
+            
+            <!-- Hidden Certification Form -->
+            <div id="certification-form-container" class="hidden bg-gray-50 p-5 rounded-lg border border-gray-200 mb-4 shadow-sm">
+              <form action="{{ url_for('user.resume_certifications') }}" method="POST">
+                <div class="mb-4">
+                  <label for="certification_name" class="text-gray-700 font-medium">Skill Name:</label>
+                  <input type="text" name="certification_name" id="certification_name" class="form-control mt-2" placeholder="Enter Skill Name" required>
+                </div>
+                <div class="flex justify-between flex-responsive">
+                  <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save mr-2"></i> Save Skill
+                  </button>
+                  <button type="button" id="cancel-btn" class="btn bg-gray-500 text-white hover:bg-gray-600">
+                    <i class="fas fa-times mr-2"></i> Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+            
             <div class="certifications-container">
               {% for cert in certifications %}
                 <div class="file-item certification-item">
