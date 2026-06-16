@@ -54,7 +54,7 @@
             
             <!-- Add search bar -->
             <div class="search-container">
-                <input type="text" id="searchBar" class="search-bar" placeholder="Search for jobs...">
+                <input type="text" id="searchBar" class="search-bar" placeholder="Search for jobs..." value="{{ search_query|default('') }}">
                 <i class="fas fa-search search-icon"></i>
             </div>
             
@@ -146,11 +146,13 @@
                     <p id="noResults" style="text-align: center; padding: 20px; font-family: monospace; font-size: 16px; color: #666;">No job listings available at the moment.</p>
                 {% endif %}
             </div>
-            
+
             <!-- Pagination Controls -->
             <div class="pagination-container">
                 <div class="pagination" id="pagination">
-                    <!-- Pagination buttons will be added dynamically -->
+                    <button id="prev-page" onclick="changePage({{ pagination.prev_num if pagination.has_prev else 1 }})" {% if not pagination.has_prev %}disabled{% endif %} style="border: none; background: none; cursor: pointer; padding: 5px 10px;"><i class="fas fa-chevron-left"></i></button>
+                    <span class="page-info" style="margin: 0 15px; font-family: monospace;">Page {{ pagination.page if pagination.pages > 0 else 0 }} of {{ pagination.pages }}</span>
+                    <button id="next-page" onclick="changePage({{ pagination.next_num if pagination.has_next else 1 }})" {% if not pagination.has_next %}disabled{% endif %} style="border: none; background: none; cursor: pointer; padding: 5px 10px;"><i class="fas fa-chevron-right"></i></button>
                 </div>
             </div>
         </div>
@@ -165,8 +167,7 @@
             </div>
             <div class="modal-scroll-area">
                 <div id="modalBody">
-                    <!-- Content will be populated by JS -->
-                </div>
+                    </div>
             </div>
         </div>
     </div>
@@ -224,195 +225,30 @@
                 menuToggle.classList.remove('active');
             }
         });
-
-        // Pagination and Search functionality
-        document.addEventListener('DOMContentLoaded', function() {
-            const jobCards = document.querySelectorAll('.job-card');
-            const jobsPerPage = 5; // Set to 5 jobs per page
-            let currentPage = 1;
-            let filteredJobs = Array.from(jobCards);
-            const jobList = document.getElementById('jobList');
-            
-            // Initialize pagination
-            function initPagination() {
-                showJobsForPage(currentPage);
-                setupPaginationButtons();
+        
+        // Server-side Search functionality
+        const searchBar = document.getElementById('searchBar');
+        searchBar.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const searchQuery = this.value.trim();
+                const params = new URLSearchParams();
+                
+                if (searchQuery) {
+                    params.append('search_query', searchQuery);
+                }
+                
+                // Redirect to backend with search query (resets to page 1 automatically)
+                window.location.href = "{{ url_for('company.company_jobposting') }}?" + params.toString();
             }
-            
-            // Show jobs for the current page
-            function showJobsForPage(page) {
-                const startIndex = (page - 1) * jobsPerPage;
-                const endIndex = startIndex + jobsPerPage;
-                
-                filteredJobs.forEach((job, index) => {
-                    if (index >= startIndex && index < endIndex) {
-                        job.style.display = 'block';
-                    } else {
-                        job.style.display = 'none';
-                    }
-                });
-            }
-            
-            // Setup pagination buttons
-            function setupPaginationButtons() {
-                const paginationContainer = document.getElementById('pagination');
-                paginationContainer.innerHTML = '';
-                
-                const totalPages = Math.ceil(filteredJobs.length / jobsPerPage);
-                
-                if (totalPages <= 1) {
-                    paginationContainer.style.display = 'none';
-                    return;
-                }
-                
-                paginationContainer.style.display = 'flex';
-                
-                // Previous button
-                if (currentPage > 1) {
-                    const prevButton = document.createElement('button');
-                    prevButton.innerHTML = '<i class="fas fa-chevron-left"></i>';
-                    prevButton.classList.add('pagination-btn');
-                    prevButton.addEventListener('click', () => {
-                        if (currentPage > 1) {
-                            currentPage--;
-                            showJobsForPage(currentPage);
-                            setupPaginationButtons();
-                        }
-                    });
-                    paginationContainer.appendChild(prevButton);
-                }
-                
-                // Page buttons
-                const maxVisibleButtons = 5;
-                let startPage = Math.max(1, currentPage - Math.floor(maxVisibleButtons / 2));
-                let endPage = Math.min(totalPages, startPage + maxVisibleButtons - 1);
-                
-                if (endPage - startPage + 1 < maxVisibleButtons) {
-                    startPage = Math.max(1, endPage - maxVisibleButtons + 1);
-                }
-                
-                // First page button if needed
-                if (startPage > 1) {
-                    const firstPageBtn = document.createElement('button');
-                    firstPageBtn.textContent = '1';
-                    firstPageBtn.classList.add('pagination-btn');
-                    firstPageBtn.addEventListener('click', () => {
-                        currentPage = 1;
-                        showJobsForPage(currentPage);
-                        setupPaginationButtons();
-                    });
-                    paginationContainer.appendChild(firstPageBtn);
-                    
-                    if (startPage > 2) {
-                        const ellipsis = document.createElement('span');
-                        ellipsis.textContent = '...';
-                        ellipsis.classList.add('pagination-ellipsis');
-                        paginationContainer.appendChild(ellipsis);
-                    }
-                }
-                
-                // Page number buttons
-                for (let i = startPage; i <= endPage; i++) {
-                    const pageBtn = document.createElement('button');
-                    pageBtn.textContent = i;
-                    pageBtn.classList.add('pagination-btn');
-                    
-                    if (i === currentPage) {
-                        pageBtn.classList.add('active');
-                    }
-                    
-                    pageBtn.addEventListener('click', () => {
-                        currentPage = i;
-                        showJobsForPage(currentPage);
-                        setupPaginationButtons();
-                    });
-                    
-                    paginationContainer.appendChild(pageBtn);
-                }
-                
-                // Last page button if needed
-                if (endPage < totalPages) {
-                    if (endPage < totalPages - 1) {
-                        const ellipsis = document.createElement('span');
-                        ellipsis.textContent = '...';
-                        ellipsis.classList.add('pagination-ellipsis');
-                        paginationContainer.appendChild(ellipsis);
-                    }
-                    
-                    const lastPageBtn = document.createElement('button');
-                    lastPageBtn.textContent = totalPages;
-                    lastPageBtn.classList.add('pagination-btn');
-                    lastPageBtn.addEventListener('click', () => {
-                        currentPage = totalPages;
-                        showJobsForPage(currentPage);
-                        setupPaginationButtons();
-                    });
-                    paginationContainer.appendChild(lastPageBtn);
-                }
-                
-                // Next button
-                if (currentPage < totalPages) {
-                    const nextButton = document.createElement('button');
-                    nextButton.innerHTML = '<i class="fas fa-chevron-right"></i>';
-                    nextButton.classList.add('pagination-btn');
-                    nextButton.addEventListener('click', () => {
-                        if (currentPage < totalPages) {
-                            currentPage++;
-                            showJobsForPage(currentPage);
-                            setupPaginationButtons();
-                        }
-                    });
-                    paginationContainer.appendChild(nextButton);
-                }
-            }
-            
-            // Search functionality
-            const searchBar = document.getElementById('searchBar');
-            searchBar.addEventListener('input', function() {
-                const searchQuery = this.value.toLowerCase();
-                const allJobCards = document.querySelectorAll('.job-card');
-                
-                // Filter jobs based on search query
-                filteredJobs = Array.from(allJobCards).filter(card => {
-                    const cardText = card.textContent.toLowerCase();
-                    return cardText.includes(searchQuery);
-                });
-                
-                // Show all filtered jobs (for checking if any match)
-                allJobCards.forEach(card => {
-                    card.style.display = 'none';
-                });
-                
-                filteredJobs.forEach(card => {
-                    card.style.display = 'block';
-                });
-                
-                // Show or hide the "no results" message
-                let noResultsMsg = document.getElementById('noResults');
-                if (filteredJobs.length === 0) {
-                    if (!noResultsMsg) {
-                        noResultsMsg = document.createElement('p');
-                        noResultsMsg.id = 'noResults';
-                        noResultsMsg.textContent = 'No matching jobs found.';
-                        jobList.appendChild(noResultsMsg);
-                    } else {
-                        noResultsMsg.style.display = 'block';
-                    }
-                } else {
-                    if (noResultsMsg) {
-                        noResultsMsg.style.display = 'none';
-                    }
-                }
-                
-                // Reset to first page and update pagination
-                currentPage = 1;
-                showJobsForPage(currentPage);
-                setupPaginationButtons();
-            });
-            
-            // Initialize pagination on page load
-            initPagination();
         });
+
+        // Server-side Pagination functionality
+        function changePage(pageNum) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('page', pageNum);
+            window.location.href = url.toString();
+        }
 
         // Modal Logic
         const modal = document.getElementById("jobModal");
