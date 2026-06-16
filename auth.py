@@ -153,8 +153,6 @@ def signup():
 
     if request.method == 'POST':
         current_form_data = request.form.to_dict()
-        if 'password' in current_form_data:
-            del current_form_data['password'] 
         session['signup_form_data'] = current_form_data
 
         username = request.form['username']
@@ -228,7 +226,7 @@ def signup():
             flash('Email format is invalid.', 'danger')
             return redirect(url_for('auth.signup'))
         if len(email) > 90:
-            flash('Password length is too long.', 'danger')
+            flash('Email length is too long.', 'danger')
             return redirect(url_for('auth.signup'))
 
         is_valid_domain, domain_error = validate_email_domain(email)
@@ -361,6 +359,7 @@ def login():
         # --- Handle Standard Web Form Logins for All Other Users ---
         login_user = Login.query.filter_by(username=username).first()
         if not login_user or not login_user.check_password(password):
+            session['login_username'] = username
             flash('Invalid username or password.', 'danger')
             return redirect(url_for('auth.login'))
 
