@@ -181,6 +181,38 @@
       border-radius: 2px;
     }
 
+    .search-input {
+      width: 220px;
+      padding: 8px 35px 8px 12px;
+      font-size: 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      outline: none;
+      color: #2d3748;
+      background-color: #ffffff;
+      transition: all 0.2s ease;
+    }
+
+    .search-input:focus {
+      border-color: #0a9396;
+      box-shadow: 0 0 0 3px rgba(10, 147, 150, 0.15); 
+    } 
+
+    .search-container {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .search-icon {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%); 
+      color: #94a3b8;
+      pointer-events: none;
+    }
+    
     /* Filters */
     .filters {
       display: flex;
