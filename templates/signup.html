@@ -90,7 +90,7 @@ Username must be a single word (letters/numbers only).">
                 <div class="form-group">
                     <label for="password"><p style="color: red; display: inline;">* </p>Password</label>
                     <div class="password-container">
-                        <input type="password" id="password" name="password" minlength="8" maxlength="30" required 
+                        <input type="password" id="password" name="password" minlength="8" maxlength="30" value="{{ form_data.get('password', '') }}" required 
                             title="Password must be at least 8 characters. 
 Password can only contain letters, numbers, and special characters @#$%^&+=">
                         <span class="material-icons password-toggle" id="togglePassword" onclick="togglePassword()">visibility</span>
