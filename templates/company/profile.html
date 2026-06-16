@@ -9,6 +9,37 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
+    <div id="logoModal" style="display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px);">
+        <div style="max-width: 420px; margin: 10vh auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); animation: slideIn 0.3s ease-out;">
+            <div style="background-color: #005f73; color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 600;">
+                <i class="fas fa-camera" style="background-color: #005f73; margin-right: 8px;"></i> Update Company Logo
+            </h3>
+            <button type="button" onclick="closeLogoModal()" style="background: transparent; border: none; color: white; font-size: 1.5rem; cursor: pointer; opacity: 0.8;">&times;</button>
+            </div>
+            <div style="padding: 24px;">
+                <form id="logoForm" action="{{ url_for('company.upload_company_logo') }}" method="POST" enctype="multipart/form-data">
+                    <div style="margin-bottom: 24px; display: flex; justify-content: center;">
+                        <img id="modalPreviewImage" src="{{ profile.logo if profile.logo else url_for('static', filename='images/company.jpg') }}" 
+                            style="width: 140px; height: 140px; border-radius: 50%; object-fit: cover; border: 4px solid #f3f4f6; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                    </div>
+                    <input type="file" name="company_logo" id="modalLogoInput" accept="image/png, image/jpeg, image/jpg, image/gif" style="width: 100%;  border: 1px solid grey;" class="form-control mb-2" required>
+                    <small style="color: #6c757d; display: block; text-align: left; margin-top: 8px;">
+                    <i class="fas fa-info-circle"></i> Max size: 2MB. Allowed types: JPG, PNG, GIF.
+                    </small>
+                    <div style="margin-top: 32px; display: flex; gap: 12px; justify-content: flex-end; border-top: 1px solid #f3f4f6; padding-top: 20px;">
+                        <button type="submit" class="btn btn-primary" style="background-color: #005f73; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                            <i class="fas fa-upload" style="margin-right: 6px;"></i> Upload
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="closeLogoModal()" style="padding: 8px 16px; background-color: transparent; border: 1px solid #6c757d; color: #6c757d; border-radius: 4px; cursor: pointer;">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div id="popup-message" class="popup"></div> <!-- Popup Message -->
     <header>
         <div class="menu-toggle">
@@ -47,6 +78,22 @@
 
         <div class="activity">
             <h2>Company Profile</h2>
+            <div style="display: flex; justify-content: center; margin-bottom: 30px; margin-top: 10px;">
+                <div style="position: relative; display: inline-block; cursor: pointer; transition: transform 0.2s;" 
+                    onclick="openLogoModal()" 
+                    onmouseover="this.style.transform='scale(1.05)'" 
+                    onmouseout="this.style.transform='scale(1)'"
+                    title="Click to update company logo">
+                    
+                    <img id="mainProfileLogo" src="{{ profile.logo if profile.logo else url_for('static', filename='images/company.jpg') }}" 
+                        style="width: 130px; height: 130px; border-radius: 50%; object-fit: cover; border: 4px solid #ffffff; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);"
+                        onerror="this.onerror=null; this.src='{{ url_for('static', filename='images/company.jpg') }}';">
+                    
+                    <div style="position: absolute; bottom: 5px; right: 5px; background: #005f73; color: white; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 6px rgba(0,0,0,0.2); border: 2px solid white;">
+                        <i class="fas fa-camera"></i>
+                    </div>
+                </div>
+            </div>
             <form id="profile-form" class="profile-form" method="POST" action="{{ url_for('company.company_profile') }}" onsubmit="return validateForm()">
                 {% if companies %}
                     <input type="hidden" id="logId" name="logId" value="{{ companies.id }}">
@@ -82,15 +129,6 @@
                     </div>
                     
                     <div>
-                        <label for="company-logo">Company Logo URL:</label>
-                        <input type="url" id="company-logo" name="company-logo" value="{{ companies.logo or '' }}" placeholder="Enter logo URL">
-                    
-                        <small id="logo-preview-error" style="color: #dc3545; display: none; margin-top: 5px;">
-                            <i class="fas fa-exclamation-circle"></i> Unable to load image from this URL.
-                        </small>
-                    </div>
-                    
-                    <div>
                         <label for="company-website">Company Website:</label>
                         <input type="url" id="company-website" name="company-website" value="{{ companies.website or '' }}" placeholder="Enter company website">
                     </div>                    
@@ -109,7 +147,7 @@
         const profileForm = document.getElementById('profile-form');
         const profileFormFields = [
             'company-name', 'contact-email', 'company-description', 'company-address',
-            'industries', 'company-logo', 'company-website'
+            'industries', 'company-website'
         ];
 
         function saveProfileToSession() {
@@ -165,7 +203,6 @@
                 "company-description": document.getElementById("company-description").value.trim(),
                 "company-address": document.getElementById("company-address").value.trim(),
                 "company-website": document.getElementById("company-website").value.trim(),
-                "company-logo": document.getElementById("company-logo").value.trim(),
                 "industries": document.getElementById("industries").value.trim()
             };
         };
@@ -213,7 +250,6 @@
                 "company-description": document.getElementById("company-description").value.trim(),
                 "company-address": document.getElementById("company-address").value.trim(),
                 "company-website": document.getElementById("company-website").value.trim(),
-                "company-logo": document.getElementById("company-logo").value.trim(),
                 "industries": document.getElementById("industries").value.trim()
             };
 
@@ -272,27 +308,6 @@
                 }
             }
 
-            const logo = currentFormData["company-logo"];
-            if (logo) {
-                if (hasMultipleUrls(logo)) {
-                    showPopup("Please enter only one logo URL.", "error");
-                    return false;
-                }
-                if (!isHttpUrl(logo)) {
-                    showPopup("Logo URL must start with http:// or https://.", "error");
-                    return false;
-                }
-                if (isDangerousUrl(logo)) {
-                    showPopup("Logo URL scheme is not allowed.", "error");
-                    return false;
-                }
-
-                if (/\.(html|htm|php|jsp|asp)(\?.*)?$/i.test(logo)) {
-                    showPopup("It looks like you pasted a webpage link. Please provide an image address.", "error");
-                    return false;
-                }
-            }
-
             if (currentFormData["company-description"].length > 1000) {
                 showPopup("Description must be under 1000 characters!", "error");
                 return false;
@@ -347,47 +362,48 @@
             const dropdownContent = document.querySelector('.dropdown-content');
             dropdownContent.style.display = dropdownContent.style.display === 'block' ? 'none' : 'block';
         });
+        
+        // --- COMPANY LOGO MODAL LOGIC ---
+        function openLogoModal() {
+            document.getElementById('logoModal').style.display = 'block';
+        }
 
-        // Live Preview Logic for Logo URL
-        document.getElementById('company-logo').addEventListener('input', function() {
-            const url = this.value.trim();
-            const headerLogo = document.querySelector('.logo img'); 
-            const errorMsg = document.getElementById('logo-preview-error');
-            
-            // This pulls the default image path generated by Flask
-            const defaultImgUrl = "{{ url_for('static', filename='images/company.jpg') }}";
-            
-            // Helper to handle invalid state
-            function showPreviewError() {
-                headerLogo.src = defaultImgUrl;
-                errorMsg.style.display = 'block'; // Show the error text
+        function closeLogoModal() {
+            document.getElementById('logoModal').style.display = 'none';
+            document.getElementById('modalLogoInput').value = '';
+            document.getElementById('modalPreviewImage').src = "{{ profile.logo if profile.logo else url_for('static', filename='images/company.jpg') }}";
+        }
+
+        window.addEventListener('click', function(event) {
+            const modal = document.getElementById('logoModal');
+            if (event.target === modal) {
+                closeLogoModal();
             }
+        });
 
-            // Basic checks before trying to load
-            if (url) {
-                if (isHttpUrl(url) && !isDangerousUrl(url)) {
-                    const tempImg = new Image();
-                    
-                    tempImg.onload = function() {
-                        // Success: The URL is a valid image
-                        headerLogo.src = url;
-                        errorMsg.style.display = 'none'; // Hide error
-                    };
-                    
-                    tempImg.onerror = function() {
-                        // Failure: 404 or not an image
-                        showPreviewError();
-                    };
-                    
-                    tempImg.src = url;
-                } else {
-                    // Invalid format (e.g., 'javascript:')
-                    showPreviewError();
+        document.getElementById('modalLogoInput').addEventListener('change', function() {
+            const file = this.files[0];
+            const maxSize = 2 * 1024 * 1024; // 2MB
+            
+            if (file) {
+                if (file.size > maxSize) {
+                    showPopup("File size must not exceed 2MB", "error");
+                    this.value = '';
+                    return;
                 }
-            } else {
-                // Input is empty, revert to default but don't show error
-                headerLogo.src = defaultImgUrl;
-                errorMsg.style.display = 'none';
+                
+                const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif'];
+                if (!allowedTypes.includes(file.type)) {
+                    showPopup("Please select a valid image (JPG, PNG, GIF)", "error");
+                    this.value = '';
+                    return;
+                }
+                
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('modalPreviewImage').src = e.target.result;
+                };
+                reader.readAsDataURL(file);
             }
         });
     </script>
