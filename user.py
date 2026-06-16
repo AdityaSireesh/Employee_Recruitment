@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from functools import wraps
 
-from flask import request  # Ensure this is imported at the top
+from flask import request, current_app  # Ensure this is imported at the top
 from flask import (Blueprint, flash, jsonify, make_response, redirect,
                    render_template, session, url_for)
 from flask_login import current_user, login_required
@@ -425,7 +425,6 @@ def profile():
         raw_age = request.form.get('age', '').strip()
         raw_manual_college = request.form.get('college_name', '').strip()
         raw_about_me = request.form.get('about_me', '').strip()
-        raw_profile_pic_url = request.form.get('profile_pic_url', '').strip()
         raw_coupon_code = request.form.get('coupon_code', '').strip()
 
         # Store for repopulation
@@ -436,7 +435,6 @@ def profile():
             'age': raw_age,
             'college_name': raw_manual_college,
             'about_me': raw_about_me,
-            'profile_pic_url': raw_profile_pic_url,
             'coupon_code': raw_coupon_code
         }
 
@@ -447,7 +445,6 @@ def profile():
             ('Phone', raw_phone, 'phone'),
             ('College Name', raw_manual_college, 'college_name'),
             ('About Me', raw_about_me, 'about_me'),
-            ('Profile Picture URL', raw_profile_pic_url, 'profile_pic_url'),
             ('Coupon Code', raw_coupon_code, 'coupon_code')
         ]
         for field_label, raw_value, field_key in text_fields_to_check:
@@ -464,7 +461,6 @@ def profile():
         age_input = sanitize_text(raw_age)
         manual_college = sanitize_text(raw_manual_college)
         about_me_input = sanitize_text(raw_about_me)
-        profile_pic_url = sanitize_text(raw_profile_pic_url)
         coupon_code = sanitize_text(raw_coupon_code)
 
         # 2. Name Validation
@@ -523,12 +519,7 @@ def profile():
         if manual_college and len(manual_college) > 200:
             errors['college_name'] = "College name cannot exceed 200 characters."
 
-        # 8. Profile Picture URL
-        if profile_pic_url:
-            if not is_valid_url(profile_pic_url):
-                 errors['profile_pic_url'] = "Please enter a valid URL."
-
-        # 9. Coupon validation
+        # 8. Coupon validation
         if coupon_code and not user_coupon:
             coupon = Coupon.query.filter_by(code=coupon_code).first()
             if not coupon:
@@ -549,6 +540,7 @@ def profile():
                         flash("Coupon code applied successfully!", "success")
                         # Refresh coupon info
                         user_coupon = coupon
+        db.session.commit()
 
         if errors:
             return render_template('/user/profile.html', user=user, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=True, form_values=form_values, errors=errors)
@@ -559,8 +551,7 @@ def profile():
         user.phone = phone_input if phone_input else None
         user.age = int(age_input) if age_input else None
         user.about_me = about_me_input if about_me_input else None
-        user.profile_picture = profile_pic_url if profile_pic_url else None
-
+        
         try:
             db.session.commit()
             flash("Profile updated successfully!", "success")
@@ -572,6 +563,45 @@ def profile():
 
     return render_template('/user/profile.html', user=user, resumes=resumes, certifications=certifications, user_coupon=user_coupon, edit_mode=edit_mode, form_values=form_values, errors=errors)
 
+@user_blueprint.route('/upload_profile_picture', methods=['POST'])
+@login_required
+def upload_profile_picture():
+    user_id = session.get('user_id')
+    user = User.query.get(user_id)
+    
+    if not user:
+        flash('User not found.', 'error')
+        return redirect(url_for('auth.login'))
+
+    if 'profile_pic' in request.files:
+        file = request.files['profile_pic']
+        
+        if file and file.filename != '':
+            allowed_extensions = {'png', 'jpg', 'jpeg', 'gif'}
+            def allowed_file(filename):
+                return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
+            
+            if allowed_file(file.filename):
+                ext = file.filename.rsplit('.', 1)[1].lower()
+                unique_filename = f"profile_{user.id}_{uuid.uuid4().hex[:8]}.{ext}"
+                
+                profile_pics_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'profile_pics')
+                if not os.path.exists(profile_pics_dir):
+                    os.makedirs(profile_pics_dir)
+                    
+                file_path = os.path.join(profile_pics_dir, unique_filename)
+                file.save(file_path)
+                
+                # Update the database
+                user.profile_picture = f"/static/uploads/profile_pics/{unique_filename}"
+                db.session.commit()
+                flash('Profile picture updated successfully!', 'success')
+            else:
+                flash('Invalid image format. Only JPG, PNG, and GIF are allowed.', 'danger')
+        else:
+            flash('No file selected.', 'danger')
+            
+    return redirect(url_for('user.profile'))
 
 # ==============================================================================
 # RESUMES & CERTIFICATIONS
@@ -976,7 +1006,6 @@ def job_search():
 
 
 # Job Details Route - Add this new route
-# Job Details Route - Add this new route
 @user_blueprint.route('/job_details/<uuid:job_id>')
 @no_cache
 @login_required
@@ -1050,7 +1079,7 @@ def apply_for_job(job_id):
         flash("You must upload a resume to apply for a job.", 'error')
         return redirect(url_for('user.resume_certifications'))
 
-    print("Debugging: Resume Path:", resume_certification.resume_path)  # ✅ Debugging Output
+    print("Debugging: Resume Path:", resume_certification.resume_path)  # Debugging Output
 
     # Check if the user has already applied for this job
     existing_application = JobApplication.query.filter_by(user_id=user.id, job_id=job_id).first()
@@ -1058,7 +1087,7 @@ def apply_for_job(job_id):
         flash(f"You have already applied for the job {job.title}.", 'error')
         return redirect(url_for('user.user_dashboard'))
 
-    # ✅ Ensure date_applied and status_updated_at are set properly
+    # Ensure date_applied and status_updated_at are set properly
     new_application = JobApplication(
         user_id=user.id,
         job_id=job.job_id,
@@ -1067,7 +1096,7 @@ def apply_for_job(job_id):
         
     )
 
-    # ✅ Send notification to company
+    # Send notification to company
     message = f"{user.name} has applied for the job: {job.title}"
     new_notification = Notification(
         user_id=user.login_id,
@@ -1112,7 +1141,7 @@ def apply1_for_job(job_id):
         flash("You must upload a resume to apply for a job.", 'error')
         return redirect(url_for('user.resume_certifications'))
     
-    print("Debugging: Resume Path:", resume_certification.resume_path)  # ✅ Debugging Output
+    print("Debugging: Resume Path:", resume_certification.resume_path)  # Debugging Output
     
     # Check if the user has already applied for this job
     existing_application = JobApplication.query.filter_by(user_id=user.id, job_id=job_id).first()
@@ -1120,7 +1149,7 @@ def apply1_for_job(job_id):
         flash(f"You have already applied for the job {job.title}.", 'danger')
         return redirect(request.referrer or url_for('user.job_search'))
     
-    # ✅ Ensure date_applied and status_updated_at are set properly
+    # Ensure date_applied and status_updated_at are set properly
     new_application = JobApplication(
         user_id=user.id,
         job_id=job.job_id,
@@ -1128,7 +1157,7 @@ def apply1_for_job(job_id):
         resume_path=resume_certification.resume_path,
     )
     
-    # ✅ Send notification to company
+    # Send notification to company
     message = f"{user.name} has applied for the job: {job.title}"
     new_notification = Notification(
         user_id=user.login_id,
@@ -1144,6 +1173,8 @@ def apply1_for_job(job_id):
     flash(f"Application for {job.title} submitted successfully!", 'success')
     return redirect(request.referrer or url_for('user.job_search'))
 
+
+# Don't forget to ensure 'from sqlalchemy import or_' and 'from models import Job' are at the top!
 
 @user_blueprint.route('/application_history', methods=['GET'])
 @no_cache
@@ -1169,20 +1200,48 @@ def application_history():
         flash("User is not logged in.", "error")
         return redirect(url_for('auth.login'))
     
-    # Fetch all applications for the logged-in user, ordered by date_applied descending (most recent first)
-    applications = JobApplication.query.filter_by(user_id=user_id).order_by(JobApplication.date_applied.desc()).all()
-   
+    #pagination info filter and search
+    page = request.args.get('page', 1, type=int)
+    per_page = 5
+    
+    search_query = request.args.get('search_query', '').strip()
+    selected_status = request.args.getlist('status')
+    
+    # Base query: Join with Job table so we can search by job title
+    query = JobApplication.query.join(Job).filter(JobApplication.user_id == user_id)
+    
+    # Apply status filters if any are checked
+    if selected_status:
+        query = query.filter(JobApplication.status.in_(selected_status))
+        
+    # Apply search query across job title and application status
+    if search_query:
+        query = query.filter(
+            or_(
+                Job.title.ilike(f'%{search_query}%'),
+                JobApplication.status.ilike(f'%{search_query}%')
+            )
+        )
+        
+    # Order and paginate the final filtered results
+    pagination = query.order_by(JobApplication.date_applied.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    applications = pagination.items
+    
     # Retrieve chart data, recent activities, and live feed using the common helper function
     user_success_rate, applications_overview, recent_activities, live_feed = get_chart_data_for_user(user_id)
     
     # Render the template with the application data, chart data, recent activities, and live feed
     return render_template('/user/applicationhistory.html',
-                           user=user,
+        user=user,
         applications=applications,
         user_success_rate=user_success_rate,
         applications_overview=applications_overview,
         recent_activities=recent_activities,
-        live_feed=live_feed
+        live_feed=live_feed,
+        pagination=pagination,
+        page=page,
+        search_query=search_query,
+        selected_status=selected_status
     )
 
 
@@ -1415,127 +1474,93 @@ def remove_favorite(job_id):
     return redirect(url_for('user.favorites'))
 
 
-# ==============================================================================
-# NOTIFICATIONS
-# ==============================================================================
-@user_blueprint.route('/notifications', methods=['GET'])
+#Notifications
+@user_blueprint.route('/notifications', methods=['GET', 'POST'])
 @no_cache
 @login_required
 def notifications():
-    login_id = session.get('login_id')  # Use 'login_id' instead of 'user_id'
-    if not login_id:
-        flash("User not logged in", "error")
+    login_id = session.get('login_id')
+
+    if not login_id or session.get('role') != 'user':
+        flash("Unauthorized access. Please log in as a user.", "error")
         return redirect(url_for('auth.login'))
-   
-    # Ensure that only regular users access this page
-    if session.get('role') != 'user':
-        return redirect(url_for('auth.login'))
-   
-    # Get the User object using login_id from the Login table
+
+    if request.method == 'POST':
+        notification_id = request.form.get('notification_id')
+        action = request.form.get('action')
+        
+        page = request.args.get('page', 1, type=int)
+        current_filter = request.args.get('filter', 'all')
+
+        if notification_id and action:
+            notification = Communication.query.filter_by(
+                id=notification_id, 
+                user_id=login_id, 
+                hidden=False
+            ).first()
+
+            if notification:
+                if action == 'mark_read':
+                    notification.read_status = True
+                    db.session.commit()
+                    flash("Notification marked as read.", "success")
+                elif action == 'delete':
+                    notification.hidden = True  # Soft-delete
+                    db.session.commit()
+                    flash("Notification removed.", "success")
+            else:
+                flash("Notification not found.", "danger")
+
+        return redirect(request.referrer or url_for('user.notifications', page=page))
+    
     user = User.query.filter_by(login_id=login_id).first()
     if not user:
-        flash("User not found", "error")
-        return redirect(url_for('auth.login'))
-    user_pk = session.get('user_id')
-    if not user_pk:
-        flash("Please log in to view notifications.", "danger")
+        flash("User not found.", "error")
         return redirect(url_for('auth.login'))
 
-    # Retrieve the user record to get the user's login_id (which is stored in the Communication table)
-    users = User.query.get(user_pk)
-    if not users:
-        flash("User not found.", "danger")
-        return redirect(url_for('auth.login'))
-
-    # Paginate the notifications query
+    # Pagination setup
     page = request.args.get('page', 1, type=int)
-    per_page = 5  # Changed from unlimited to 5 per page
+    per_page = 5 
 
-    # Use the user's login_id for querying communications and filter out hidden ones if needed.
-    notifications_query = Communication.query.filter_by(user_id=users.login_id, hidden=False)\
-        .order_by(Communication.timestamp.desc())
+    current_filter = request.args.get('filter', 'all')
     
+    search_query = request.args.get('search_query', '').strip()
+
+    notifications_query = Communication.query.outerjoin(
+        Company, Communication.company_id == Company.login_id
+    ).filter(
+        Communication.user_id == login_id, 
+        Communication.hidden == False
+    )
+    
+    if current_filter == 'unread':
+        notifications_query = notifications_query.filter(Communication.read_status == False)
+    elif current_filter == 'read':
+        notifications_query = notifications_query.filter(Communication.read_status == True)
+        
+    if search_query:
+        notifications_query = notifications_query.filter(
+            or_(
+                Communication.message.ilike(f'%{search_query}%'),
+                Company.company_name.ilike(f'%{search_query}%')
+            )
+        )
+    
+    notifications_query = notifications_query.order_by(Communication.timestamp.desc())
     notifications_pagination = notifications_query.paginate(page=page, per_page=per_page, error_out=False)
-    notifications = notifications_pagination.items
-    total_pages = notifications_pagination.pages
     
-    unread_count = Communication.query.filter_by(user_id=users.login_id, read_status=False, hidden=False).count()
+    unread_count = Communication.query.filter_by(user_id=login_id, read_status=False, hidden=False).count()
 
     return render_template(
         '/user/notification.html',
         user=user,
-        notifications=notifications,
+        notifications=notifications_pagination.items,
         unread_count=unread_count,
         page=page,
-        total_pages=total_pages
+        total_pages=notifications_pagination.pages,
+        current_filter=current_filter,
+        search_query=search_query
     )
-
-
-@user_blueprint.route('/mark_notification_read/<uuid:notification_id>', methods=['POST'], endpoint='mark_single_notification_read')
-@no_cache
-@login_required
-def mark_notification_read(notification_id):
-    # Your code for marking a single notification as read...
-
-
-    user_pk = session.get('user_id')
-    if not user_pk:
-        flash("Please log in.", "danger")
-        return redirect(url_for('auth.login'))
-    
-    # Retrieve user record to get the correct login_id
-    user = User.query.get(user_pk)
-    if not user:
-        flash("User not found.", "danger")
-        return redirect(url_for('auth.login'))
-
-    # Retrieve the specific notification and verify ownership using user.login_id
-    notification = Communication.query.filter_by(
-        id=notification_id, 
-        user_id=user.login_id, 
-        hidden=False
-    ).first()
-    
-    if notification:
-        notification.read_status = True
-        db.session.commit()
-        
-    else:
-        flash("Notification not found.", "danger")
-    
-    return redirect(url_for('user.notifications'))
-
-
-@user_blueprint.route('/delete_notification/<uuid:notification_id>', methods=['POST'])
-@no_cache
-@login_required
-def delete_notification(notification_id):
-    user_pk = session.get('user_id')
-    if not user_pk:
-        flash("Unauthorized access.", "danger")
-        return redirect(url_for('auth.login'))
-    
-    user = User.query.get(user_pk)
-    if not user:
-        flash("User not found.", "danger")
-        return redirect(url_for('auth.login'))
-
-    # Retrieve the specific notification belonging to this user that is not already hidden
-    notification = Communication.query.filter_by(
-        id=notification_id, 
-        user_id=user.login_id, 
-        hidden=False
-    ).first()
-    
-    if notification:
-        notification.hidden = True  # Soft-delete by marking as hidden
-        db.session.commit()
-        flash("Notification removed.", "success")
-    else:
-        flash("Notification not found.", "danger")
-    
-    return redirect(url_for('user.notifications'))
-
 
 # ==============================================================================
 # HELPER FUNCTIONS
