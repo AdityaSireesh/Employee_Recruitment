@@ -89,6 +89,42 @@
     {% endif %}
     {% endwith %}
   </div>
+
+  <div id="profilePicModal" style="display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px);">
+    <div style="max-width: 420px; margin: 10vh auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); animation: slideIn 0.3s ease-out;">
+      <div style="background-color: #005f73; color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; font-size: 1.25rem; font-weight: 600;">
+          <i class="fas fa-camera" style="margin-right: 8px;"></i> Update Profile Picture
+        </h3>
+      </div>
+      
+      <div style="padding: 24px;">
+        <form id="profilePicForm" action="{{ url_for('user.upload_profile_picture') }}" method="POST" enctype="multipart/form-data">
+          
+          <div style="margin-bottom: 24px; display: flex; justify-content: center;">
+            <img id="modalPreviewImage" src="{{ user.profile_picture or url_for('static', filename='default_profile.png') }}" 
+                style="width: 160px; height: 160px; border-radius: 50%; object-fit: cover; border: 4px solid #f3f4f6; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+          </div>
+          
+          <input type="file" name="profile_pic" id="modalProfilePicInput" accept="image/png, image/jpeg, image/jpg, image/gif" class="form-control mb-2" required>
+          <small style="color: #6c757d; display: block; text-align: left;">
+            <i class="fas fa-info-circle"></i> Max size: 2MB. Allowed types: JPG, PNG, GIF.
+          </small>
+          
+          <div style="margin-top: 32px; display: flex; gap: 12px; justify-content: flex-end; border-top: 1px solid #f3f4f6; padding-top: 20px;">
+            <button type="submit" class="btn btn-primary" style="padding: 8px 16px;">
+              <i class="fas fa-upload" style="margin-right: 6px;"></i> Upload image
+            </button>
+            <button type="button" class="btn btn-outline-secondary" onclick="closeProfilePicModal()" style="padding: 8px 16px;">
+              Cancel
+            </button>
+          </div>
+
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- Header -->
   <header>
     <div class="menu-toggle">
@@ -141,7 +177,7 @@
                  class="profile-picture"
                  id="profileImage">
             <!-- Clicking the overlay sets focus on the URL field -->
-            <div class="update-overlay" onclick="document.getElementById('profilePicUrlField').focus()">
+            <div class="update-overlay" onclick="openProfilePicModal()">
               <i class="fas fa-camera"></i>
             </div>
           </div>
@@ -164,7 +200,7 @@
         </div>
        
         {% if edit_mode %}
-          <form action="{{ url_for('user.profile', edit='true') }}" method="POST" class="edit-form" id="editProfileForm" onsubmit="return validateForm()">
+          <form action="{{ url_for('user.profile', edit='true') }}" method="POST" class="edit-form" id="editProfileForm" onsubmit="return validateForm()" enctype="multipart/form-data">
             <!-- Name Field -->
             <div class="editable-field">
               <label><p style="color: red; display: inline;">* </p>Name</label>
@@ -248,14 +284,7 @@
               <textarea name="about_me" id="aboutMeField" rows="5" maxlength="2000" class="{% if errors and errors.about_me %}is-invalid{% endif %}">{{ form_values.about_me if form_values else (user.about_me or '') }}</textarea>
               <div class="invalid-feedback" id="aboutMeError" style="display: {% if errors and errors.about_me %}block{% else %}none{% endif %};">{{ errors.about_me if errors else '' }}</div>
             </div>
-           
-            <!-- New field for Profile Picture URL -->
-            <div class="editable-field">
-              <label>Profile Picture URL</label>
-              <input type="url" name="profile_pic_url" id="profilePicUrlField" value="{{ form_values.profile_pic_url if form_values else (user.profile_picture or '') }}" placeholder="Enter image URL" maxlength="2000" class="{% if errors and errors.profile_pic_url %}is-invalid{% endif %}">
-              <div class="invalid-feedback" id="profilePicError" style="display: {% if errors and errors.profile_pic_url %}block{% else %}none{% endif %};">{{ errors.profile_pic_url if errors else '' }}</div>
-            </div>
-           
+
             <div class="mt-4 flex items-center gap-4">
               <button type="submit" class="btn-primary"><i class="fas fa-save"></i> Save Profile</button>
               <a href="{{ url_for('user.profile') }}" class="btn btn-outline-secondary">Cancel</a>
@@ -749,29 +778,44 @@
         });
       }
      
-      // Preview profile picture as user types URL
-      const urlField = document.getElementById('profilePicUrlField');
-      if(urlField) {
-        urlField.addEventListener('input', function() {
-          clearFieldError('profilePicUrlField', 'profilePicError');
-          const imageUrl = this.value.trim();
-          if(imageUrl) {
-            if (!isValidURL(imageUrl)) {
-              showFieldError('profilePicUrlField', 'profilePicError', 'Please enter a valid URL for the profile picture');
-            } else if (imageUrl.includes('<') || imageUrl.includes('>')) {
-              showFieldError('profilePicUrlField', 'profilePicError', 'Invalid characters (< or >) not allowed in Profile Picture URL field');
-            } else {
-              const img = new Image();
-              img.onload = function() {
-                document.getElementById('profileImage').src = imageUrl;
-              };
-              img.onerror = function() {
-                document.getElementById('profileImage').src = "{{ url_for('static', filename='default_profile.png') }}";
-              };
-              img.src = imageUrl;
+      // Preview profile picture as user uploads file
+      const fileField = document.getElementById('profilePicFileField');
+      if(fileField) {
+        fileField.addEventListener('change', function() {
+          clearFieldError('profilePicFileField', 'profilePicError');
+          const file = this.files[0];
+          const maxSize = 2 * 1024 * 1024; // 2MB limit
+          
+          if(file) {
+            // Validate file size
+            if (file.size > maxSize) {
+              showFieldError('profilePicFileField', 'profilePicError', 'File size must not exceed 2MB');
+              showPopup("Image size too large!", "error");
+              this.value = ''; // Clear the input
+              document.getElementById('profileImage').src = "{{ user.profile_picture or url_for('static', filename='default_profile.png') }}";
+              return;
             }
+            
+            // Validate file type
+            const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif'];
+            if (!allowedTypes.includes(file.type)) {
+              showFieldError('profilePicFileField', 'profilePicError', 'Please select a valid image (JPG, PNG, GIF)');
+              showPopup("Invalid file type!", "error");
+              this.value = ''; // Clear the input
+              document.getElementById('profileImage').src = "{{ user.profile_picture or url_for('static', filename='default_profile.png') }}";
+              return;
+            }
+            
+            // Read and preview the image locally
+            const reader = new FileReader();
+            reader.onload = function(e) {
+              document.getElementById('profileImage').src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+            
           } else {
-            document.getElementById('profileImage').src = "{{ url_for('static', filename='default_profile.png') }}";
+            // Revert to original if selection is canceled
+            document.getElementById('profileImage').src = "{{ user.profile_picture or url_for('static', filename='default_profile.png') }}";
           }
           updateProfileProgress();
         });
@@ -818,6 +862,55 @@
         }, 500);
       });
     }, 5000);
+
+    // --- PROFILE PICTURE MODAL LOGIC ---
+    function openProfilePicModal() {
+      document.getElementById('profilePicModal').style.display = 'block';
+    }
+
+    function closeProfilePicModal() {
+      document.getElementById('profilePicModal').style.display = 'none';
+      // Reset the input and preview if they cancel
+      document.getElementById('modalProfilePicInput').value = '';
+      document.getElementById('modalPreviewImage').src = "{{ user.profile_picture or url_for('static', filename='default_profile.png') }}";
+    }
+
+    // Close modal when clicking outside of it
+    window.addEventListener('click', function(event) {
+      const modal = document.getElementById('profilePicModal');
+      if (event.target === modal) {
+        closeProfilePicModal();
+      }
+    });
+
+    // Live Image Preview inside the Modal
+    document.getElementById('modalProfilePicInput').addEventListener('change', function() {
+      const file = this.files[0];
+      const maxSize = 2 * 1024 * 1024; // 2MB
+      
+      if (file) {
+        if (file.size > maxSize) {
+          showPopup("File size must not exceed 2MB", "error");
+          this.value = '';
+          return;
+        }
+        
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif'];
+        if (!allowedTypes.includes(file.type)) {
+          showPopup("Please select a valid image (JPG, PNG, GIF)", "error");
+          this.value = '';
+          return;
+        }
+        
+        // Read and display the image
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          document.getElementById('modalPreviewImage').src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
   </script>
 <!-- Bootstrap JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
