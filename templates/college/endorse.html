@@ -6,9 +6,15 @@
     <title>Endorsement Management</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/college/endorse.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        /* FIX: Override any external CSS hiding the rows so server pagination works */
+        #student-table tbody tr.student-row {
+            display: table-row !important;
+        }
+    </style>
 </head>
 <body>
-    <div id="popup-message" class="popup"></div> <!-- Added popup message div -->
+    <div id="popup-message" class="popup"></div> 
     <header>
         <div class="menu-toggle">
             <i class="fas fa-bars"></i>
@@ -51,14 +57,12 @@
             </div>
 
             <div class="filter-bar">
-                <!-- Search Bar -->
                 <div class="search-container">
-                    <input type="text" id="search-input" placeholder="Search students..." style="font-family: monospace;font-size: 14.5px;">
+                    <input type="text" id="search-input" placeholder="Search..." value="{{ search_query|default('') }}" style="font-family: monospace;font-size: 14.5px;">
                     <i class="fas fa-search search-icon"></i>
                 </div>
             </div>
             
-            <!-- Students List -->
             <div class="candidate-list">
                 <h3>Coupon Users</h3>
                 <div class="table-container">
@@ -66,7 +70,6 @@
                         <thead>
                             <tr>
                                 <th>Student Name</th>
-                                <!-- <th>Faculty ID</th> -->
                                 <th>Batch</th>
                                 <th>Action</th>
                             </tr>
@@ -75,13 +78,13 @@
                             {% if coupon_users %}
                                 {% for user in coupon_users %}
                                 <tr class="student-row {% if user.is_banned %}banned-user{% endif %}" 
+                                    style="display: table-row;"
                                     data-name="{{ user.user_name }}" 
                                     data-faculty="{{ user.faculty_id }}" 
                                     data-batch="{{ user.year }}" 
                                     data-userid="{{ user.user_id }}"
                                     data-banned="{{ 'true' if user.is_banned else 'false' }}">
                                     <td>{{ user.user_name }}</td>
-                                    <!-- <td>{{ user.faculty_id }}</td> -->
                                     <td>{{ user.year }}</td>
                                     <td>
                                         <button class="action-btn">Endorse</button>
@@ -100,15 +103,13 @@
                     </div>
                 </div>
                 
-                <!-- Pagination -->
                 <div class="pagination">
-                    <button id="prev-page" disabled>&laquo; Previous</button>
-                    <span id="page-info">Page 0 of 0</span>
-                    <button id="next-page" disabled>Next &raquo;</button>
+                    <button id="prev-page" onclick="changePage({{ pagination.prev_num if pagination.has_prev else 1 }})" {% if not pagination.has_prev %}disabled{% endif %}>&laquo; Previous</button>
+                    <span id="page-info">Page {{ pagination.page if pagination.pages > 0 else 0 }} of {{ pagination.pages }}</span>
+                    <button id="next-page" onclick="changePage({{ pagination.next_num if pagination.has_next else 1 }})" {% if not pagination.has_next %}disabled{% endif %}>Next &raquo;</button>
                 </div>
             </div>
             
-            <!-- User Details Modal -->
             <div id="user-modal" class="modal">
                 <div class="modal-content">
                     <span class="close">&times;</span>
@@ -165,11 +166,6 @@
             dropdownContent.style.display = dropdownContent.style.display === 'block' ? 'none' : 'block';
         });
 
-        // Pagination variables
-        let currentPage = 1;
-        const rowsPerPage = 5;
-        let filteredRows = [];
-
         // Menu toggle function
         document.querySelector('.menu-toggle').addEventListener('click', function() {
             document.getElementById('side-navigation').classList.toggle('active');
@@ -190,91 +186,29 @@
         });
 
         // Live search functionality
-        document.getElementById('search-input').addEventListener('keyup', function() {
-            const searchText = this.value.toLowerCase();
-            filterTableBySearch(searchText);
+        document.getElementById('search-input').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const searchText = this.value.trim();
+                filterTableBySearch(searchText);
+            }
         });
 
         // Filter table by search text
         function filterTableBySearch(searchText) {
-            const rows = document.querySelectorAll('#student-table tbody tr.student-row');
-            filteredRows = [];
-            
-            rows.forEach(row => {
-                const name = row.querySelector('td:first-child').textContent.toLowerCase();
-                const faculty = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
-                const batch = row.querySelector('td:nth-child(3)').textContent.toLowerCase();
-                
-                if (name.includes(searchText) || faculty.includes(searchText) || batch.includes(searchText)) {
-                    row.dataset.visible = "true";
-                    filteredRows.push(row);
-                } else {
-                    row.dataset.visible = "false";
-                }
-            });
-            
-            // Show/hide no results message
-            document.getElementById('no-results-message').style.display = filteredRows.length === 0 ? 'block' : 'none';
-            
-            updatePagination();
-            showPage(1);
-        }
-
-        // Update pagination controls
-        function updatePagination() {
-            // Count only the actual data rows, ignoring the "No applications found" row
-            const dataRowsCount = filteredRows.filter(row => row.classList.contains('student-row')).length;
-            const totalPages = Math.ceil(dataRowsCount / rowsPerPage);
-
-            // If there are no data rows, the current page should be displayed as 1
-            const displayPage = dataRowsCount === 0 ? 0 : currentPage;
-            
-            // This will correctly display "Page 0 of 0" when no data rows are present
-            document.getElementById('page-info').textContent = `Page ${displayPage} of ${totalPages}`;
-            
-            document.getElementById('prev-page').disabled = currentPage === 1 || dataRowsCount === 0;
-            document.getElementById('next-page').disabled = currentPage === totalPages || totalPages === 0;
-        }
-
-        // Show specific page
-        function showPage(pageNum) {
-            currentPage = pageNum;
-            const start = (pageNum - 1) * rowsPerPage;
-            const end = start + rowsPerPage;
-            
-            const rows = document.querySelectorAll('#student-table tbody tr.student-row');
-            rows.forEach(row => {
-                row.style.display = 'none';
-            });
-            
-            for (let i = start; i < end && i < filteredRows.length; i++) {
-                filteredRows[i].style.display = 'table-row';
+            const params = new URLSearchParams();
+            if (searchText) {
+                params.append('search_query', searchText);
             }
-            
-            updatePagination();
+            window.location.href = "{{ url_for('college.college_endorsement') }}?" + params.toString();
         }
 
         // Pagination controls
-        document.getElementById('prev-page').addEventListener('click', function() {
-            if (currentPage > 1) {
-                showPage(currentPage - 1);
-            }
-        });
-
-        document.getElementById('next-page').addEventListener('click', function() {
-            const totalPages = Math.ceil(filteredRows.length / rowsPerPage);
-            if (currentPage < totalPages) {
-                showPage(currentPage + 1);
-            }
-        });
-
-        // Initialize pagination
-        window.addEventListener('load', function() {
-            const rows = document.querySelectorAll('#student-table tbody tr.student-row');
-            filteredRows = Array.from(rows);
-            updatePagination();
-            showPage(1);
-        });
+        function changePage(pageNum) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('page', pageNum);
+            window.location.href = url.toString();
+        }
 
         // Modal functionality
         const modal = document.getElementById("user-modal");
@@ -346,12 +280,12 @@
             if (certifications && certifications.length > 0) {
                 let certHtml = `
                     <div class="cert-table-wrapper">
-                        <table class="certification-table">
+                        <table class="certification-table" style="width: 100%; table-layout: fixed;">
                             <thead>
                                 <tr>
-                                    <th>Skill</th>
-                                    <th>Status</th>
-                                    <th>Action</th>
+                                    <th style="width: 60%; text-align: left;">Skill</th>
+                                    <th style="width: 20%; text-align: center;">Status</th>
+                                    <th style="width: 20%; text-align: center;">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -361,18 +295,20 @@
                     const isVerified = cert.verification_status;
                     certHtml += `
                         <tr data-cert-id="${cert.id}">
-                            <td>${cert.certification_name}</td>
-                            <td class="status-cell">
+                            <td style="word-wrap: break-word;">${cert.certification_name}</td>
+                            <td class="status-cell" style="text-align: center;">
                                 ${isVerified ? 
-                                    '<span class="verified-text"><i class="fas fa-check-circle"></i> Verified</span>' : 
-                                    '<span class="unverified-text"><i class="fas fa-clock"></i> Not Verified</span>'}
+                                    '<span class="verified-text" style="color: #198754; font-weight: 600;"><i class="fas fa-check-circle"></i> Verified</span>' : 
+                                    '<span class="unverified-text" style="color: #6c757d;"><i class="fas fa-times-circle"></i> Unverified</span>'}
                             </td>
-                            <td class="action-cell">
+                            <td class="action-cell" style="text-align: center;">
                                 ${!isVerified ? 
-                                    `<button onclick="verifyCertification('${cert.id}')" class="verify-button">
+                                    `<button class="verify-btn btn btn-sm btn-primary" onclick="verifyCertification('${cert.id}')" style="background-color: #0d6efd; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">
                                         <i class="fas fa-certificate"></i> Verify
                                     </button>` : 
-                                    '<span class="verified-badge"><i class="fas fa-shield-alt"></i> Endorsed</span>'}
+                                    `<button class="unverify-btn btn btn-sm btn-danger" onclick="unverifyCertification('${cert.id}')" style="background-color: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">
+                                         <i class="fas fa-undo"></i> Remove
+                                     </button>`}
                             </td>
                         </tr>
                     `;
@@ -395,7 +331,7 @@
             }
         }
 
-        // Function to verify certification - FIXED VERSION
+        // Function to verify certification
         function verifyCertification(certId) {
             // Disable the button to prevent multiple clicks
             const button = document.querySelector(`button[onclick="verifyCertification('${certId}')"]`);
@@ -424,11 +360,15 @@
                     if (row) {
                         // Update the status cell
                         const statusCell = row.querySelector('.status-cell');
-                        statusCell.innerHTML = '<span class="verified-text"><i class="fas fa-check-circle"></i> Verified</span>';
+                        statusCell.innerHTML = '<span class="verified-text" style="color: #198754; font-weight: 600;"><i class="fas fa-check-circle"></i> Verified</span>';
                         
-                        // Update the action cell
+                        // Update the action cell (ONLY the Remove button now)
                         const actionCell = row.querySelector('.action-cell');
-                        actionCell.innerHTML = '<span class="verified-badge"><i class="fas fa-shield-alt"></i> Endorsed</span>';
+                        actionCell.innerHTML = `
+                            <button class="unverify-btn btn btn-sm btn-danger" onclick="unverifyCertification('${certId}')" style="background-color: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">
+                                <i class="fas fa-undo"></i> Remove
+                            </button>
+                        `;
                     }
                     
                     showPopup("Skill verified successfully!", "success");
@@ -447,6 +387,68 @@
                 if (button) {
                     button.disabled = false;
                     button.innerHTML = '<i class="fas fa-certificate"></i> Verify';
+                }
+                showPopup("Error processing your request", "error");
+            });
+        }
+
+        // Function to remove endorsement
+        function unverifyCertification(certId) {
+            // Disable the button to prevent multiple clicks
+            const button = document.querySelector(`button[onclick="unverifyCertification('${certId}')"]`);
+            if (button) {
+                button.disabled = true;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Removing...';
+            }
+
+            // Call the new python backend route
+            fetch(`/college/unverify_certification/${certId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    // Find the row by cert-id
+                    const row = document.querySelector(`tr[data-cert-id="${certId}"]`);
+                    if (row) {
+                        // Revert the status cell
+                        const statusCell = row.querySelector('.status-cell');
+                        statusCell.innerHTML = '<span class="unverified-text" style="color: #6c757d;"><i class="fas fa-times-circle"></i> Unverified</span>';
+                        
+                        // Revert the action cell back to the Verify button
+                        const actionCell = row.querySelector('.action-cell');
+                        actionCell.innerHTML = `
+                            <button class="verify-btn btn btn-sm btn-primary" onclick="verifyCertification('${certId}')" style="background-color: #0d6efd; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer;">
+                                <i class="fas fa-certificate"></i> Verify
+                            </button>
+                        `;
+                    }
+                    
+                    showPopup("Skill endorsement removed!", "success");
+                } else {
+                    // Re-enable button on failure
+                    if (button) {
+                        button.disabled = false;
+                        button.innerHTML = '<i class="fas fa-undo"></i> Remove';
+                    }
+                    showPopup(data.message || "Failed to remove endorsement", "error");
+                }
+            })
+            .catch(error => {
+                console.error('Error removing skill endorsement:', error);
+                // Re-enable button on error
+                if (button) {
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fas fa-undo"></i> Remove';
                 }
                 showPopup("Error processing your request", "error");
             });
