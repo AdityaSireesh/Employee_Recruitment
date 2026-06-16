@@ -1,5 +1,5 @@
 from datetime import datetime, date, timedelta
-from flask import Blueprint, render_template, request, session, redirect, url_for, flash, jsonify, make_response
+from flask import Blueprint, render_template, request, session, redirect, url_for, flash, jsonify, make_response, current_app
 from functools import wraps
 import os
 from flask_mail import Mail, Message
@@ -12,6 +12,7 @@ from utils import allowed_file  # Assuming your config file is named config.py
 from models import Job, Company, Login, JobApplication, User, Communication, Notification, College, Certification, ResumeCertification
 import re, uuid
 from utils_url import url_seems_reachable
+from sqlalchemy import or_
 
 
 company_blueprint = Blueprint('company', __name__)
@@ -145,12 +146,31 @@ def company_jobposting():
     if 'login_id' not in session or session.get('role') != 'company':
         return redirect(url_for('auth.login'))  # Ensure only companies can access
     
-    # Retrieve all jobs ordered by most recent
-    jobs_list = Job.query.filter_by(created_by=user_id).order_by(Job.created_at.desc()).all()
+    page = request.args.get('page', 1, type=int)
+    per_page = 5
+
+    search_query = request.args.get('search_query', '').strip()
+
+    query = Job.query.filter_by(created_by=user_id)
+
+    #Apply search filter to the Job
+    if search_query:
+        query = query.filter(Job.title.ilike(f'%{search_query}%'))
+
+    pagination = query.order_by(Job.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+
+    jobs_list = pagination.items
     jobs = [job.to_dict() for job in jobs_list]
+
     profile = Company.query.filter_by(login_id=user_id).first()
 
-    return render_template('/company/job_posting.html', jobs=jobs, profile=profile,)
+    return render_template('/company/job_posting.html', 
+        jobs=jobs,
+        profile=profile,
+        pagination=pagination,
+        page=page,
+        search_query=search_query
+    )
 
 # Post New Job
 @company_blueprint.route('/company_post_new_job', methods=['GET', 'POST'])
@@ -174,6 +194,10 @@ def company_post_new_job():
     job = None
     job_id = request.args.get('job_id')
 
+    # --- FIX: Memorize the exact URL (with filters/pages) they came from ---
+    if request.method == 'GET' and request.referrer and 'company_jobposting' in request.referrer:
+        session['job_posting_return_url'] = request.referrer
+
     if request.method == 'POST':
         # Get form data
         job_id = request.form.get('jobId')
@@ -182,7 +206,9 @@ def company_post_new_job():
             job_to_check = Job.query.get(job_id)
             if job_to_check and job_to_check.status == 'closed':
                 flash("This job is closed and cannot be edited.", "error")
-                return redirect(url_for('company.company_jobposting'))
+                # FIX: Send them back to the exact page they came from
+                return_url = session.get('job_posting_return_url', url_for('company.company_jobposting'))
+                return redirect(return_url)
 
         raw_title = request.form.get('job-title', '').strip()
         raw_description = request.form.get('description', '').strip()
@@ -375,7 +401,9 @@ def company_post_new_job():
                                     message_type = "success"
                                 
                                 if message_type == "success":
-                                    return redirect(url_for('company.company_jobposting'))
+                                    # FIX: Clear the session memory and redirect back to the paginated list
+                                    return_url = session.pop('job_posting_return_url', url_for('company.company_jobposting'))
+                                    return redirect(return_url)
                         except ValueError:
                             message = "Invalid date format for the deadline. Please use YYYY-MM-DD."
                             message_type = "error"
@@ -463,6 +491,8 @@ def company_application_review():
         new_status = request.form.get('status')
  
         application = JobApplication.query.get(application_id)
+        
+        page = request.form.get('page', 1, type=int) 
 
         if application:
             previous_status = application.status
@@ -476,21 +506,25 @@ def company_application_review():
 
             application.status = new_status
             db.session.commit()
-            flash('Application status updated successfully!', 'success')
 
             # If the application is hired, increment the filled_vacancy in Job table
             if new_status == 'Hired' and previous_status != 'Hired':
+
                 job = application.job  # Get the related job
                 if job.filled_vacancy < job.total_vacancy: # Ensure filled_vacancy does not exceed total_vacancy
                     job.filled_vacancy += 1
                     db.session.commit()
                 else:
+                    application.status = previous_status
+                    db.session.commit()
                     flash(f'Cannot hire more candidates. Vacancy limit ({job.total_vacancy}) reached for this job.', 'danger')
-                    return redirect(url_for('company.company_application_review'))
-
+                    return redirect(request.referrer or url_for('company.company_application_review', page=page))
                 if job.filled_vacancy == job.total_vacancy:
                     job.status = 'closed'
                     db.session.commit()
+            
+            return redirect(request.referrer or url_for('company.company_application_review', page=page))
+        
         else:
             flash('Application not found!', 'danger')
 
@@ -498,15 +532,16 @@ def company_application_review():
     # For the filter dropdown
     selected_status = request.args.getlist('status')  # Get selected status filters
     selected_jobs = request.args.getlist('job_post')  # Get selected job filters
-    
+    page = request.args.get('page', 1, type=int)
+    per_page = 5
     # For the search functionality
     search_query = request.args.get('search_query', '').strip()
 
     # Get all jobs created by the company
     jobs = Job.query.filter_by(created_by=user_id).all()
     
-    # Query all job applications for the company's jobs
-    query = JobApplication.query.join(Job).filter(Job.created_by == user_id).order_by(JobApplication.status_updated_at.desc())
+    # Query all job applications for the company's jobs 
+    query = JobApplication.query.join(Job).filter(Job.created_by == user_id)
 
     # Apply filters based on dropdown selections
     if selected_status:
@@ -519,14 +554,14 @@ def company_application_review():
         query = query.join(User).filter(
             or_(
                 User.name.ilike(f'%{search_query}%'),
-                Job.title.ilike(f'%{search_query}%'),
-                JobApplication.status.ilike(f'%{search_query}%')
+                Job.title.ilike(f'%{search_query}%')
             )
         )
 
-    # Get all filtered job applications
-    job_applications = query.order_by(JobApplication.status_updated_at.desc()).all()
-    
+    # Order the query and THEN apply pagination at the very end
+    pagination = query.order_by(JobApplication.date_applied.desc()).paginate(page=page, per_page=per_page, error_out=False) 
+    job_applications = pagination.items 
+
     # Create a list of applications with details for rendering
     applications_data = []
     for application in job_applications:
@@ -570,9 +605,71 @@ def company_application_review():
         profile=profile,
         selected_status=selected_status,
         jobs=jobs,
+        page=page,
+        pagination=pagination, 
         selected_jobs=selected_jobs,
         user_certifications=user_certifications
     )
+
+@company_blueprint.route('/api/applicant_profile/<uuid:user_id>', methods=['GET'])
+@login_required
+@no_cache
+def api_applicant_profile(user_id):
+    if session.get('role') != 'company':
+        return jsonify({"error": "Unauthorized"}), 403
+        
+    # Fetch the User
+    user = User.query.get_or_404(user_id)
+    
+    # Fetch their Skills/Certifications
+    certifications = Certification.query.filter_by(user_id=user_id).all()
+    
+    # Fetch their latest Resume
+    resume = ResumeCertification.query.filter_by(user_id=user_id).order_by(ResumeCertification.uploaded_at.desc()).first()
+    
+    # Format the complete profile data
+    profile_data = {
+        "name": user.name,
+        "email": user.email,
+        "phone": user.phone if user.phone else "Not provided",
+        "age": user.age if user.age else "Not provided",
+        "about_me": user.about_me if user.about_me else "No description provided.",
+        "college_name": user.college_name if user.college_name else "Not linked to a college",
+        "profile_picture": user.profile_picture if user.profile_picture else "/static/default_avatar.png",
+        "resume_url": resume.resume_path if resume else None,
+        "skills": [
+            {
+                "id": str(cert.id),
+                "name": cert.certification_name,
+                "is_verified": cert.verification_status
+            } for cert in certifications
+        ]
+    }
+    
+    return jsonify(profile_data)
+
+@company_blueprint.route('/api/college_profile/<string:college_name>', methods=['GET'])
+@no_cache
+@login_required
+def api_college_profile(college_name):
+    if session.get('role') != 'company':
+        return jsonify({"error": "Unauthorized"}), 403
+        
+    # Fetch college by name
+    college = College.query.filter_by(college_name=college_name).first()
+    
+    if not college:
+        return jsonify({"error": "College not found"}), 404
+        
+    college_data = {
+        "college_name": college.college_name,
+        "email": college.email,
+        "address": college.address if college.address else "Not provided",
+        "website": college.website if college.website else "Not provided",
+        "description": college.description if college.description else "No description available.",
+        "logo": college.logo if college.logo else "/static/images/college.jpg"
+    }
+    return jsonify(college_data)
 
 # Hiring Communication
 from flask_mail import Message
@@ -587,6 +684,9 @@ def company_hiring_communication():
     if 'login_id' not in session or session.get('role') != 'company':
         return redirect(url_for('auth.login'))  # Ensure only company can access
 
+    page = request.args.get('page', 1, type=int)
+    per_page = 5
+
     # For the filter dropdown
     selected_status = request.args.getlist('status')  # Get selected status filters
     selected_jobs = request.args.getlist('job_post')  # Get selected job filters
@@ -597,8 +697,8 @@ def company_hiring_communication():
     # Get all jobs created by the company
     jobs = Job.query.filter_by(created_by=user_id).all()
 
-    # Fetch all users who applied for the company's jobs
-    applied_users = (
+    # FIX 2 & 3: Set up a single Base Query, instead of pulling everything and doing it again
+    query = (
         db.session.query(
             User.id, 
             User.name,
@@ -610,32 +710,23 @@ def company_hiring_communication():
         .join(JobApplication, JobApplication.user_id == User.id)
         .join(Job, JobApplication.job_id == Job.job_id)
         .filter(Job.created_by == user_id)
-        .order_by(JobApplication.status_updated_at.desc())
-        .all()
     )
     
-    if selected_status or selected_jobs or search_query:
-        filtered_query = (
-            db.session.query(User.id, User.name, User.login_id, User.is_banned, Job.title.label('job_title'), JobApplication.status)
-            .join(JobApplication, JobApplication.user_id == User.id)
-            .join(Job, JobApplication.job_id == Job.job_id)
-            .filter(Job.created_by == user_id)
-        )
-        
-        if selected_status:
-            filtered_query = filtered_query.filter(JobApplication.status.in_(selected_status))
-        if selected_jobs:
-            filtered_query = filtered_query.filter(Job.title.in_(selected_jobs))
-        if search_query:
-            filtered_query = filtered_query.filter(
-                or_(
-                    User.name.ilike(f'%{search_query}%'),
-                    Job.title.ilike(f'%{search_query}%'),
-                    JobApplication.status.ilike(f'%{search_query}%')
-                )
+    # Apply filters only if they exist in the URL
+    if selected_status:
+        query = query.filter(JobApplication.status.in_(selected_status))
+    if selected_jobs:
+        query = query.filter(Job.title.in_(selected_jobs))
+    if search_query:
+        query = query.filter(
+            or_(
+                User.name.ilike(f'%{search_query}%'),
+                Job.title.ilike(f'%{search_query}%')
             )
+        )
 
-        applied_users = filtered_query.order_by(JobApplication.status_updated_at.desc()).all()
+    pagination = query.order_by(JobApplication.date_applied.desc()).paginate(page=page, per_page=per_page, error_out=False) 
+    applied_users = pagination.items
 
     # Fetch communication history with structured data for JavaScript
     messages_query = (
@@ -670,6 +761,8 @@ def company_hiring_communication():
         message_content = request.form.get('message')
         recipient_type = request.form.get('recipient_type')
         recipient_id = request.form.get('recipient_id')
+
+        page = request.form.get('page', 1, type=int)
         
         # Determine which ID to use based on recipient type
         if recipient_type == 'candidate':
@@ -710,7 +803,7 @@ def company_hiring_communication():
 
             flash('Message sent successfully!', 'success')
 
-        return redirect(url_for('company.company_hiring_communication'))
+        return redirect(request.referrer or url_for('company.company_hiring_communication', page=page))
     
     message_history = {"candidates": {}}
     for msg, recipient_name, recipient_type, recipient_id in messages:
@@ -738,7 +831,9 @@ def company_hiring_communication():
         jobs=jobs,
         selected_status=selected_status,
         selected_jobs=selected_jobs,
-        message_history=message_history
+        message_history=message_history,
+        page=page,
+        pagination=pagination
     )
 
 # Notifications
@@ -811,7 +906,6 @@ def company_profile():
         raw_description = request.form.get('company-description', '')
         raw_address = request.form.get('company-address', '')
         raw_website = request.form.get('company-website', '')
-        raw_logo = request.form.get('company-logo', '')
         raw_industry = request.form['industries']
 
         # Normalised values used for comparison & storage
@@ -820,7 +914,6 @@ def company_profile():
         description = sanitize_text(raw_description.strip())
         address = sanitize_text(raw_address.strip())
         website = raw_website.strip()
-        logo = raw_logo.strip()
         industry = raw_industry.strip() if raw_industry else ''
 
         # Check if any change is made
@@ -830,7 +923,6 @@ def company_profile():
             description == companies.description and
             address == companies.address and
             website == companies.website and
-            logo == companies.logo and
             industry == companies.industry
         ):
             # return redirect(url_for('company.company_profile'))  # No changes, just reload page silently
@@ -869,40 +961,12 @@ def company_profile():
                     message = "Website URL could not be reached. Please check the link."
                     message_type = "error"
 
-            if not message and logo:
-                if re.search(r"\s", logo):
-                    message = "Please enter only one logo URL."
-                    message_type = "error"
-                elif not re.match(r"^https?://", logo, re.IGNORECASE):
-                    message = "Logo URL must start with http:// or https://."
-                    message_type = "error"
-                elif re.match(r"^(javascript:|data:)", logo, re.IGNORECASE): # Can remove data check to allow data URLs for logos ->r"^(javascript:)"
-                    message = "Logo URL scheme is not allowed."
-                    message_type = "error"
-                elif logo and not url_seems_reachable(logo):
-                    message = "Logo URL could not be reached. Please check the link."
-                    message_type = "error"
-                else:
-                    # Basic host + TLD check (rejects http://test, allows http://test.com)
-                    if not re.match(
-                        r"^https?://[A-Za-z0-9.-]+\.[A-Za-z]{2,}(/.*)?$",
-                        logo,
-                        re.IGNORECASE,
-                    ):
-                        message = "Logo URL must contain a valid domain (e.g., http://example.com)."
-                        message_type = "error"
-
-                    elif re.search(r"\.(html|htm|php|asp|jsp)(\?.*)?$", logo, re.IGNORECASE):
-                        message = "The URL looks like a webpage. Please provide an image address."
-                        message_type = "error"
-            
             if not message:
                 companies.company_name = company_name
                 companies.description = description
                 companies.email = email
                 companies.address = address
                 companies.website = website
-                companies.logo = logo
                 companies.industry = industry
                 db.session.commit()
                 message = "Profile updated successfully!"
@@ -968,6 +1032,46 @@ def company_profile():
         message=message,
         message_type=message_type,
     )
+
+@company_blueprint.route('/upload_company_logo', methods=['POST'])
+@login_required
+def upload_company_logo():
+    user_id = session.get('login_id')
+    company = Company.query.filter_by(login_id=user_id).first()
+    
+    if not company:
+        flash('Company not found.', 'error')
+        return redirect(url_for('auth.login'))
+
+    if 'company_logo' in request.files:
+        file = request.files['company_logo']
+        
+        if file and file.filename != '':
+            allowed_extensions = {'png', 'jpg', 'jpeg', 'gif'}
+            def allowed_file(filename):
+                return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
+            
+            if allowed_file(file.filename):
+                ext = file.filename.rsplit('.', 1)[1].lower()
+                unique_filename = f"logo_{company.id}_{uuid.uuid4().hex[:8]}.{ext}"
+                
+                logos_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'company_logos')
+                if not os.path.exists(logos_dir):
+                    os.makedirs(logos_dir)
+                    
+                file_path = os.path.join(logos_dir, unique_filename)
+                file.save(file_path)
+                
+                # Update the database with the local path
+                company.logo = f"/static/uploads/company_logos/{unique_filename}"
+                db.session.commit()
+                flash('Company logo updated successfully!', 'success')
+            else:
+                flash('Invalid image format. Only JPG, PNG, and GIF are allowed.', 'danger')
+        else:
+            flash('No file selected.', 'danger')
+            
+    return redirect(url_for('company.company_profile'))
 
 def sanitize_text(value: str) -> str:
     if not value:
