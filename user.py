@@ -654,6 +654,14 @@ def resume_certifications():
                 return redirect(url_for('user.resume_certifications'))
             
             if resume and allowed_file(resume.filename):
+
+                # ✅ NEW: Delete old resume from the database and the folder before saving the new one
+                old_resumes = ResumeCertification.query.filter_by(user_id=users.id).all()
+                for old in old_resumes:
+                    if old.resume_path and os.path.exists(old.resume_path):
+                        os.remove(old.resume_path)
+                    db.session.delete(old)
+                
                 resume_filename = secure_filename(resume.filename)
                 resume_path = os.path.join(upload_folder, f"resume_{users.name}_{resume_filename}")
                 resume.save(resume_path)
@@ -1112,7 +1120,30 @@ def apply_for_job(job_id):
     flash(f"Application for {job.title} submitted successfully!", 'success')
     return redirect(request.referrer or url_for('user.user_dashboard'))
 
-
+@user_blueprint.route('/api/company_profile/<string:company_name>', methods=['GET'])
+@no_cache
+@login_required
+def api_company_profile(company_name):
+    # Ensure only job seekers can use this route
+    if session.get('role') != 'user':
+        return jsonify({"error": "Unauthorized"}), 403
+        
+    # Fetch company by name
+    company = Company.query.filter_by(company_name=company_name).first()
+    
+    if not company:
+        return jsonify({"error": "Company not found"}), 404
+        
+    company_data = {
+        "company_name": company.company_name,
+        "email": company.email,
+        "industry": company.industry if company.industry else "Not specified",
+        "address": company.address if company.address else "Not provided",
+        "website": company.website if company.website else "Not provided",
+        "description": company.description if company.description else "No description available.",
+        "logo": company.logo if company.logo else "/static/images/company.jpg"
+    }
+    return jsonify(company_data)
 
 # Updated Apply for Job Route
 @user_blueprint.route('/apply1_for_job/<uuid:job_id>', methods=['POST'])
