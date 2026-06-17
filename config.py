@@ -1,7 +1,7 @@
 import os
 
 class Config:
-    SECRET_KEY = 'your_secret_key'
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'fallback_secret_key') 
     UPLOAD_FOLDER = 'uploads'
     ALLOWED_EXTENSIONS = {'pdf', 'docx', 'jpg', 'png'}
     PROFILE_PICS_FOLDER = os.path.join(UPLOAD_FOLDER, 'profile_pics')
@@ -11,14 +11,14 @@ class Config:
     DATABASE = os.path.join(basedir, 'your_database.db')
     
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SECRET_KEY = 'your_secret_key'  # For session management and CSRF protection
     
     # Connection string for PostgreSQL
-    SQLALCHEMY_DATABASE_URI = 'postgresql://postgres:root123*@localhost/test'
-    # MySql URI --> 'mysql+pymysql://username:password@localhost:3306/db_name'
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
     @staticmethod
     def init_app(app):
         os.makedirs(Config.PROFILE_PICS_FOLDER, exist_ok=True)
     @staticmethod
     def allowed_file(filename):
         return '.' in filename and filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS
+
+
